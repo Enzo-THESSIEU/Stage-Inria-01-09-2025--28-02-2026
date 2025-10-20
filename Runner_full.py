@@ -42,8 +42,6 @@ class DARPExperimentRunner:
         )
         data_sets, data_params = data_builder.build()
 
-        clusters = []
-
         # Build model
         model_builder = DARPModelBuilder(
             model_name=model_name,
@@ -79,8 +77,13 @@ class DARPExperimentRunner:
                 variable_substitution=bool_params['variable_substitution']
             )
 
-            def lp_callback(model, where):
+            def lp_callback(m, where):
                 if where == gb.GRB.Callback.MIPNODE:
+                    try:
+                        val = m.cbGetNodeRel(m._x[0,0,9])
+                    except gb.GurobiError:
+                        return  # skip cluster update for this iteration
+
                     clusters = heuristic.cluster_builder(max_weight=1.0)
 
                     # access sets and variables
@@ -111,13 +114,13 @@ class DARPExperimentRunner:
                             )
 
                         # === ADD CUT to current LP relaxation ===
-                        model.cbCut(expr >= 1)
-                        print(f"Added user cut for cluster {cluster}")
-                self.stop_when_optimal(model, where)
+                        m.cbCut(expr >= 1)
+                        # print(f"Added user cut for cluster {cluster}")
+                self.stop_when_optimal(m, where)
 
             m.optimize(lp_callback)
         else:
-            m.optimize(lambda model, where: self.stop_when_optimal(model, where))
+            m.optimize(lambda m, where: self.stop_when_optimal(m, where))
 
         end_cpu = t.process_time()
         end_wall = t.perf_counter()

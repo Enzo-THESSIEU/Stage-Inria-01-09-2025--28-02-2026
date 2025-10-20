@@ -20,11 +20,19 @@ class DARPHeuristic:
         A = self.sets['A']
         v = self.vars_['v']
         w = 0.0
-        if (i, j) in A:
-            w += self.m.cbGetNodeRel(v[i, j])
-        if (j, i) in A:
-            w += self.m.cbGetNodeRel(v[j, i])
+        try:
+            if (i, j) in A:
+                w += self.m.cbGetNodeRel(v[i, j])
+            if (j, i) in A:
+                w += self.m.cbGetNodeRel(v[j, i])
+        except gb.GurobiError:
+            # fallback to current solution value or 0 if not available
+            if (i, j) in A:
+                w += getattr(v[i, j], "X", 0)
+            if (j, i) in A:
+                w += getattr(v[j, i], "X", 0)
         return w
+
 
     def sym_w_x(self, i, j):
         """Symmetric connectivity measure for vehicle-indexed models."""
@@ -32,13 +40,23 @@ class DARPHeuristic:
         K = self.sets['K']
         x = self.vars_['x']
         w = 0.0
-        if (i, j) in A:
-            for k in K:
-                w += self.m.cbGetNodeRel(x[k, i, j])
-        if (j, i) in A:
-            for k in K:
-                w += self.m.cbGetNodeRel(x[k, j, i])
+        try:
+            if (i, j) in A:
+                for k in K:
+                    w += self.m.cbGetNodeRel(x[k, i, j])
+            if (j, i) in A:
+                for k in K:
+                    w += self.m.cbGetNodeRel(x[k, j, i])
+        except gb.GurobiError:
+            # fallback to current or last-known solution
+            if (i, j) in A:
+                for k in K:
+                    w += getattr(x[k, i, j], "X", 0)
+            if (j, i) in A:
+                for k in K:
+                    w += getattr(x[k, j, i], "X", 0)
         return w
+
 
     # === Clustering heuristic ===
     def cluster_builder(self, max_weight=1.0):
@@ -99,6 +117,6 @@ class DARPHeuristic:
             # Store this cluster
             clusters.append(cluster)
             visited |= cluster
-        print("clusters:",clusters)
+        # print("clusters:",clusters)
 
         return clusters
