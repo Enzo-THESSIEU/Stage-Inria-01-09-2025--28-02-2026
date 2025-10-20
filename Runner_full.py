@@ -127,16 +127,14 @@ class DARPExperimentRunner:
         cpu_time = end_cpu - start_cpu
         elapsed_time = end_wall - start_wall
 
-        print("\n=== Vehicle arc variables (x[k,i,j]) with nonzero values ===")
-        for (k, i, j), var in vars_['x'].items():
-            try:
-                val = var.X
-            except gb.GurobiError:
-                val = float('nan')
-            if abs(val) > 1e-6:
-                print(f"x[{k},{i},{j}] = {val:.3f}")
-
-
+        # print("\n=== Vehicle arc variables (x[k,i,j]) with nonzero values ===")
+        # for (k, i, j), var in vars_['x'].items():
+        #     try:
+        #         val = var.X
+        #     except gb.GurobiError:
+        #         val = float('nan')
+        #     if abs(val) > 1e-6:
+        #         print(f"x[{k},{i},{j}] = {val:.3f}")
 
         # === Handle infeasibility ===
         if m.status == gb.GRB.INFEASIBLE:
@@ -265,20 +263,57 @@ class DARPExperimentRunner:
             m._t_optimal = None             # initialize storage variable
 
             # --- Run with subtour elimination or not ---
+            # --- Run with subtour elimination or not ---
             if params['subtour_elimination']:
                 heuristic = DARPHeuristic(
                     m, vars_, data_sets, data_params,
                     variable_substitution=params['variable_substitution']
                 )
 
-                def combined_callback(model, where):
-                    # Apply subtour cuts and stop when optimal found
-                    heuristic.subtour_callback(model, where)
-                    self.stop_when_optimal(model, where)
+                def lp_callback(m, where):
+                    if where == gb.GRB.Callback.MIPNODE:
+                        try:
+                            val = m.cbGetNodeRel(m._x[0,0,9])
+                        except gb.GurobiError:
+                            return  # skip cluster update for this iteration
 
-                m.optimize(combined_callback)
+                        clusters = heuristic.cluster_builder(max_weight=1.0)
+
+                        # access sets and variables
+                        A = heuristic.sets["A"]
+                        N = heuristic.sets["N"]
+                        K = heuristic.sets["K"]
+                        v = heuristic.vars_["v"]
+                        x = heuristic.vars_["x"]
+
+                        for cluster in clusters:
+                            if len(cluster) <= 1:
+                                continue  # skip singletons
+
+                            if heuristic.variable_substitution:
+                                expr = gb.quicksum(
+                                    v[i, j]
+                                    for i in cluster
+                                    for j in N
+                                    if j not in cluster and (i, j) in A
+                                )
+                            else:
+                                expr = gb.quicksum(
+                                    x[k, i, j]
+                                    for k in K
+                                    for i in cluster
+                                    for j in N
+                                    if j not in cluster and (i, j) in A
+                                )
+
+                            # === ADD CUT to current LP relaxation ===
+                            m.cbCut(expr >= 1)
+                            # print(f"Added user cut for cluster {cluster}")
+                    self.stop_when_optimal(m, where)
+
+                m.optimize(lp_callback)
             else:
-                m.optimize(lambda model, where: self.stop_when_optimal(model, where))
+                m.optimize(lambda m, where: self.stop_when_optimal(m, where))
 
             end_cpu = t.process_time()
             end_wall = t.perf_counter()
