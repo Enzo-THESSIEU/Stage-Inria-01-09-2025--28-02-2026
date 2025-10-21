@@ -90,8 +90,8 @@ class DARPConstraintBuilder:
         cij, tij, di, pair_pi_di = self.params["cij"], self.params["tij"], self.params['di'], self.params['pair_pi_di']
         x, v, T_node = self.vars_['x'], self.vars_["v"], self.vars_['T_node']
         
-        f2 = gb.quicksum(T_node[d] - T_node[p] - di[self.base(p)] - tij[p,d] for p,d in pair_pi_di.items())
-        f3 = gb.quicksum((T_node[d] - T_node[p] - di[self.base(p)]) / tij[p,d] for p,d in pair_pi_di.items())
+        f2 = gb.quicksum(T_node[d] - T_node[p] - di[self.base(p)] - tij[self.base(p),self.base(d)] for p,d in pair_pi_di.items())
+        f3 = gb.quicksum((T_node[d] - T_node[p] - di[self.base(p)]) / tij[self.base(p),self.base(d)] for p,d in pair_pi_di.items())
 
         if self.variable_substitution: f1 = gb.quicksum(cij[(self.base(i),self.base(j))] * v[i,j] for (i,j) in A)
 
@@ -102,7 +102,7 @@ class DARPConstraintBuilder:
             f4 = gb.quicksum(v[i,j] for i in D_M for j in N if (i,j) in A)
         else: f4 = 0
 
-        self.m.setObjective(w[0] * f1 + w[1] * f2 + w[2] * f3 + w[3] * f4 , gb.GRB.MINIMIZE)
+        self.m.setObjective(w[0] * f1 + w[1] * f2 + w[2] * f3 - w[3] * f4 , gb.GRB.MINIMIZE)
 
     # === Constraint groups ===
     def add_vehicle_logic_constraints(self):
@@ -433,12 +433,65 @@ class DARPConstraintBuilder:
             )
             self.m.addConstr(T_node[i] - expr >= 0, name=f"PT_departure_after_arrival_{i}")
 
+    def add_scheduled_PT_constraints(self):
+        nodes, N, P, D, C, F, R, K, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
+        z, a, T_node, y = self.vars_["z"], self.vars_["a"], self.vars_["T_node"], self.vars_["y"]
+        M, tij, Departures = self.params["M"], self.params['tij'], self.params["Departures"]
+
+        # Constraint : PT departure after service start at transfer node
+        for i in C:
+            expr = (M + gb.quicksum((Departures[self.base(i), self.base(j)][d] - M) * z[d, i, j] for j in C for d in Departures[self.base(i), self.base(j)]) - T_node[i])
+            self.m.addConstr(expr >= 0, name=f"PT_departure_after_service_{i}")
+
+        # Constraint : Service at arrival transfer node after PT arrival
+        for j in C:
+            expr = (T_node[j] - gb.quicksum((Departures[self.base(i), self.base(j)][d] + tij[self.base(i), self.base(j)]) * z[d, i, j] for i in C for d in Departures[self.base(i), self.base(j)]))
+            self.m.addConstr(expr >= 0, name=f"PT_arrival_before_service_{j}")
+
+        # Constraint (37): If node used in PT trip → mark as visited
+        for i in C:
+            expr_lhs = M * a[i]
+            expr_rhs = (
+                gb.quicksum(z[d, i, j] for j in C for d in Departures[self.base(i), self.base(j)]) +
+                gb.quicksum(z[d, j, i] for j in C for d in Departures[self.base(j), self.base(i)])
+            )
+            self.m.addConstr(expr_lhs >= expr_rhs, name=f"PT_node_visit_upper_{i}")
+
+        # Constraint (38): Node marked as visited only if used in PT trip
+        for i in C:
+            expr_rhs = (
+                gb.quicksum(z[d, i, j] for j in C for d in Departures[self.base(i), self.base(j)]) +
+                gb.quicksum(z[d, j, i] for j in C for d in Departures[self.base(j), self.base(i)])
+            )
+            self.m.addConstr(a[i] <= expr_rhs, name=f"PT_node_visit_lower_{i}")
+
+        for j1 in C:
+            for j2 in C:
+                if (self.base(j1), self.base(j2)) in Departures:
+                    for r in R:
+                        lhs = T_node[j2]
+                        rhs = (
+                            T_node[j1] + tij[self.base(j1), self.base(j2)]
+                            - M * (
+                                3
+                                - gb.quicksum(y[r, i, j1] for i in N if i not in C)
+                                - gb.quicksum(y[r, j2, i] for i in N if i not in C)
+                                - gb.quicksum(z[d, j1, j2] for d in Departures[self.base(j1), self.base(j2)].keys())
+                            )
+                        )
+                        self.m.addConstr(lhs >= rhs, name=f"PT_DARP_sync_{r}_{j1}_{j2}")
+
     def add_artificial_node_constraints(self):
         nodes, N, P, D, C, F, R, K, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
-        a = self.vars_["a"]
+        M = self.params['M']
+        z, a, T_node = self.vars_["z"], self.vars_["a"], self.vars_['T_node']
         for (i,m_) in N:
             if m_ < max(n for (j,n) in N if j == i):
                 self.m.addConstr(a[i,m_] - a[i,m_+1] >= 0)
+                self.m.addConstr(T_node[i,m_ + 1] - T_node[i,m_] >= 0) # + M * (2 - a[i,m_] - a[i,m_+1]) <= 0, name = "Time Logic for artificial nodes")
+
+
+
 
     # def add_MoPS_constraints(self):
     #     nodes, N, P, D, C, F, R, K, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]

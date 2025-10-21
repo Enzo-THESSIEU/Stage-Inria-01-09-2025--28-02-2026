@@ -208,12 +208,12 @@ class DARPDataBuilder:
         D = [(i, 1) for i in D_minor]
 
         # Expand transfer nodes with artificial visits
-        C = [(i, m) for m in range(self.max_visits_transfer) for i in C_minor]
+        C = [(i, m) for m in range(1, self.max_visits_transfer) for i in C_minor]
         F = []
         P_M = []
         D_M = []
         if self.ev_constraints:
-            F = [(i, m) for i in (F_minor or []) for m in range(self.max_visits_transfer)]
+            F = [(i, m) for i in (F_minor or []) for m in range(1, self.max_visits_transfer)]
 
         if self.MoPS:
             P_M = [(i, 1) for i in P_M_minor]
@@ -254,7 +254,7 @@ class DARPDataBuilder:
             pid = self.base(p)
             did = self.base(d)
             e = ei[pid] + di[pid] + tij[pid, did]
-            l = li[pid] + di[pid] + tij[pid, did]
+            l = li[pid] + Lbar[pid]
             ei[did] = e
             li[did] = l
         pair_pi_di_M = {}
@@ -265,7 +265,7 @@ class DARPDataBuilder:
                 pid = self.base(p)
                 did = self.base(d)
                 e = ei[pid] + di[pid] + tij[pid, did]
-                l = li[pid] + di[pid] + tij[pid, did]
+                l = li[pid] + Lbar[pid]
                 ei[did] = e
                 li[did] = l
         return di, ei, li, qr, pair_pi_di, Lbar, pair_pi_di_M
@@ -538,7 +538,7 @@ class DARPDataBuilder:
                 [8, "dropoff", 4, "", "", 5, 0],
             ], dtype=object)
 
-        print("nodes:", nodes)
+        # print("nodes:", nodes)
 
         n_requests = len(set(nodes[nodes[:,2] != "", 2].astype(int)))
         n_vehicles = 2 
@@ -639,12 +639,12 @@ if __name__ == "__main__":
     )
     sets, params = builder.build()
     print("✅ Build complete.")
-    print("Node definition:", sets['nodes'])
+    # print("Node definition:", sets['nodes'])
     print("Number of nodes:", len(sets["N"]))
     print("Number of arcs:", len(sets["A"]))
     print("Travel time dict size:", len(params["tij"]))
-    print("f_ir:", params['fi_r'])
-    print("tij: ", params['tij'])
+    # print("f_ir:", params['fi_r'])
+    # print("tij: ", params['tij'])
     print("ei:", params['ei'])
     print("li:", params['li'])
 

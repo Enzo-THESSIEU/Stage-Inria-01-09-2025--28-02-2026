@@ -63,7 +63,7 @@ class DARPModelBuilder:
 
         # === Step 5: Objective ===
         constraint_builder.variable_substitution = variable_substitution
-        constraint_builder.timetabled_Departures = timetabled_departures
+        constraint_builder.timetabled_departures = timetabled_departures
         constraint_builder.set_objective()
 
         # === Step 6: Constraints ===
@@ -81,7 +81,11 @@ class DARPModelBuilder:
         if ev_constraints:
             constraint_builder.add_battery_constraints()
 
+        if timetabled_departures:
+            constraint_builder.add_scheduled_PT_constraints()
+
         if use_imjn:
+            print("checking this constraint")
             constraint_builder.add_artificial_node_constraints()
 
         # === Finalize ===

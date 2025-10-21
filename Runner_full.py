@@ -80,7 +80,10 @@ class DARPExperimentRunner:
             def lp_callback(m, where):
                 if where == gb.GRB.Callback.MIPNODE:
                     try:
-                        val = m.cbGetNodeRel(m._x[0,0,9])
+                        if bool_params['use_imjn']:
+                            val = m.cbGetNodeRel(m._x[0,(0,1),(9,1)])
+                        else:
+                            val = m.cbGetNodeRel(m._x[0,0,9])
                     except gb.GurobiError:
                         return  # skip cluster update for this iteration
 
@@ -419,14 +422,14 @@ class DARPExperimentRunner:
 if __name__ == "__main__":
     TIME_LIMIT = 2 * 60 * 60
     bool_params_singular = {
-        "duplicate_transfers": True,
+        "duplicate_transfers": False,
         "arc_elimination": True,
         "variable_substitution": True,
         "subtour_elimination": True,
         "transfer_node_strengthening": True,
         "ev_constraints": False,
-        "timetabled_departures": False,
-        "use_imjn": False,
+        "timetabled_departures": True,
+        "use_imjn": True,
     }
 
     runner = DARPExperimentRunner(time_limit=TIME_LIMIT)
