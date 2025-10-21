@@ -448,7 +448,7 @@ class DARPConstraintBuilder:
             expr = (T_node[j] - gb.quicksum((Departures[self.base(i), self.base(j)][d] + tij[self.base(i), self.base(j)]) * z[d, i, j] for i in C for d in Departures[self.base(i), self.base(j)]))
             self.m.addConstr(expr >= 0, name=f"PT_arrival_before_service_{j}")
 
-        # Constraint (37): If node used in PT trip → mark as visited
+        # Constraint : If node used in PT trip → mark as visited
         for i in C:
             expr_lhs = M * a[i]
             expr_rhs = (
@@ -457,7 +457,7 @@ class DARPConstraintBuilder:
             )
             self.m.addConstr(expr_lhs >= expr_rhs, name=f"PT_node_visit_upper_{i}")
 
-        # Constraint (38): Node marked as visited only if used in PT trip
+        # Constraint : Node marked as visited only if used in PT trip
         for i in C:
             expr_rhs = (
                 gb.quicksum(z[d, i, j] for j in C for d in Departures[self.base(i), self.base(j)]) +
@@ -465,6 +465,7 @@ class DARPConstraintBuilder:
             )
             self.m.addConstr(a[i] <= expr_rhs, name=f"PT_node_visit_lower_{i}")
 
+        # Constraint : Linearised constraint such that Ti + tij <= Tj when going from i to j for request r
         for j1 in C:
             for j2 in C:
                 if (self.base(j1), self.base(j2)) in Departures:
@@ -480,6 +481,24 @@ class DARPConstraintBuilder:
                             )
                         )
                         self.m.addConstr(lhs >= rhs, name=f"PT_DARP_sync_{r}_{j1}_{j2}")
+
+                        
+        # for r in R:
+        #     for i1 in N:
+        #         for i2 in N:
+        #             for j1 in C:
+        #                 for j2 in C:
+        #                     if y[r,i1,j1].X * y[r,i2,j2].X > 1e-3:
+        #                         self.m.addConstr(T_node[j2] - T_node[j1] - tij[self.base(j1), self.base(j2)] >= 0)
+
+        # for i in C:
+        #     for j in C:
+        #         for d in Departures[self.base(i) , self.base(j)]:
+        #             if z[d,i,j].x > 0.5 : 
+        #                 self.m.addConstr(T_node[j2] - T_node[j1] - tij[self.base(j1), self.base(j2)] >= 0)
+
+
+
 
     def add_artificial_node_constraints(self):
         nodes, N, P, D, C, F, R, K, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]

@@ -6,7 +6,7 @@ import gurobipy as gb
 import pandas as pd
 
 from Model import DARPModelBuilder
-from routes_2 import extract_route_final
+from routes_2 import DARPRouteExtractor
 from Parametres import DARPDataBuilder
 from Cluster_Heuristic import DARPHeuristic  # assuming you renamed Cluster_Heuristic to this
 
@@ -130,15 +130,6 @@ class DARPExperimentRunner:
         cpu_time = end_cpu - start_cpu
         elapsed_time = end_wall - start_wall
 
-        # print("\n=== Vehicle arc variables (x[k,i,j]) with nonzero values ===")
-        # for (k, i, j), var in vars_['x'].items():
-        #     try:
-        #         val = var.X
-        #     except gb.GurobiError:
-        #         val = float('nan')
-        #     if abs(val) > 1e-6:
-        #         print(f"x[{k},{i},{j}] = {val:.3f}")
-
         # === Handle infeasibility ===
         if m.status == gb.GRB.INFEASIBLE:
             print("⚠️ Model infeasible — writing IIS files...")
@@ -147,14 +138,26 @@ class DARPExperimentRunner:
             m.write(f"{model_name}.iis")
             raise SystemExit("Model infeasible; IIS written.")
 
+        z_values_1 = {}
+        for key, var in vars_['z'].items():
+            if abs(var.X) > 1e-6:
+                z_values_1[key] = int(var.X)
+
+        z_values_all = {}
+        for key, var in vars_['z'].items(): 
+            z_values_all[key] = int(var.X)
+
         # === Extract routes ===
-        v1, v2, r1, r2, r3, r4 = extract_route_final(
-            vars_,
-            nodes=data_sets["nodes"],
-            N=data_sets["N"],
-            K=data_sets["K"],
-            variable_substitution=bool_params['variable_substitution']
-        )
+        extractor = DARPRouteExtractor(
+            m = m,
+            vars_ = vars_,
+            sets = data_sets,
+            params = data_params,
+            options = bool_params
+            )
+        v1 , v2 = extractor.extract_vehicle_route_final()
+        r1, r2, r3, r4 = extractor.extract_request_route_final()
+        z1 = extractor.extract_PT_route_final()
 
         # === Save results ===
         result = {
@@ -168,9 +171,11 @@ class DARPExperimentRunner:
             "Request 2 Route": str(r2),
             "Request 3 Route": str(r3),
             "Request 4 Route": str(r4),
+            "PT Arcs used": str(z1),
             "CPU Time (s)": cpu_time,
-            "Elapsed Time (s)": elapsed_time,
-            
+            "Elapsed Time (s)": elapsed_time, 
+            "All values of z": z_values_all,
+            "z_values_1": z_values_1,  
         }
         self.results.append(result)
         print(result)

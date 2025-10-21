@@ -3,7 +3,7 @@ import numpy as np
 
 class DARPDataBuilder:
     def __init__(self, duplicate_transfers=True, arc_elimination=True,
-                 ev_constraints=False, use_imjn=False, MoPS = False, max_visits_transfer=10):
+                 ev_constraints=False, use_imjn=False, MoPS = False, max_visits_transfer=2):
         self.duplicate_transfers = duplicate_transfers
         self.arc_elimination = arc_elimination
         self.ev_constraints = ev_constraints
@@ -283,7 +283,7 @@ class DARPDataBuilder:
                 fi_r[r, d] = -1
         return fi_r
 
-    def build_departures(self, t, C_minor, interval=5, planning_horizon=24*60):
+    def build_departures(self, t, C_minor, interval=20, planning_horizon=24*80):    ##### Modify again ######
         """
         Build Departures dictionary with forward and backward arcs (including skip arcs).
 

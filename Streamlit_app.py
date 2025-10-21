@@ -8,7 +8,8 @@
 import streamlit as st
 import matplotlib.pyplot as plt
 import numpy as np
-from Plotter_2 import display_vehicle_routes_from_idarp
+# from Preliminary_model.Plotter_Pyvis import display_vehicle_routes_from_idarp
+from Preliminary_model.Plotter_Plotly_express import display_vehicle_routes_from_idarp
 import streamlit.components.v1 as components
 import pandas as pd
 import os
@@ -115,7 +116,7 @@ def singular_results_page():
         f"{key[:3].lower()}{1 if val else 0}" for key, val in selections.items()
     ])
 
-    csv_path = "C:\\Users\\enzot\\Documents\\Césure\\1ère césure inria Lille\\Codes\\results_full.csv"
+    csv_path = "C:\\Users\\enzot\\Documents\\Césure\\1ère césure inria Lille\\Codes\\results_full_2h_1.csv"
 
     # Check if model exists
     df = pd.read_csv(csv_path)
