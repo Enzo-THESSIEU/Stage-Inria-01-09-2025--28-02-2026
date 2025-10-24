@@ -3,7 +3,7 @@ import numpy as np
 
 class DARPDataBuilder:
     def __init__(self, duplicate_transfers=True, arc_elimination=True,
-                 ev_constraints=False, use_imjn=False, MoPS = False, max_visits_transfer=2):
+                 ev_constraints=False, use_imjn=False, MoPS = False, max_visits_transfer=3):
         self.duplicate_transfers = duplicate_transfers
         self.arc_elimination = arc_elimination
         self.ev_constraints = ev_constraints
@@ -283,7 +283,7 @@ class DARPDataBuilder:
                 fi_r[r, d] = -1
         return fi_r
 
-    def build_departures(self, t, C_minor, interval=20, planning_horizon=24*80):    ##### Modify again ######
+    def build_departures(self, t, C_minor, interval=20, planning_horizon=24*60):    ##### Modify again ######
         """
         Build Departures dictionary with forward and backward arcs (including skip arcs).
 
@@ -304,7 +304,7 @@ class DARPDataBuilder:
         left_terminal = transfer_nodes[0]
         for j in range(1, len(transfer_nodes)):
             Departures[(left_terminal, transfer_nodes[j])] = {
-                a: interval * a for a in range(int(n_intervals))
+                a: 150 + interval * a for a in range(int(n_intervals))
             }
 
         # Forward arcs (including skips)
@@ -319,7 +319,7 @@ class DARPDataBuilder:
         right_terminal = transfer_nodes[-1]
         for j in range(len(transfer_nodes)-1):
             Departures[(right_terminal, transfer_nodes[j])] = {
-                a: interval * a for a in range(int(n_intervals))
+                a: 150 + interval * a for a in range(int(n_intervals))
             }
 
         # Backward arcs (including skips)
@@ -632,10 +632,10 @@ class DARPDataBuilder:
     
 if __name__ == "__main__":
     builder = DARPDataBuilder(
-        duplicate_transfers=True,
+        duplicate_transfers=False,
         arc_elimination=True,
         ev_constraints=False,
-        use_imjn=False
+        use_imjn=True
     )
     sets, params = builder.build()
     print("✅ Build complete.")
@@ -643,8 +643,10 @@ if __name__ == "__main__":
     print("Number of nodes:", len(sets["N"]))
     print("Number of arcs:", len(sets["A"]))
     print("Travel time dict size:", len(params["tij"]))
-    # print("f_ir:", params['fi_r'])
+    print("f_ir:", params['fi_r'])
     # print("tij: ", params['tij'])
     print("ei:", params['ei'])
     print("li:", params['li'])
+    print("Example C:", list(sets['C'])[:5])
+
 

@@ -119,11 +119,12 @@ class DARPExperimentRunner:
                         # === ADD CUT to current LP relaxation ===
                         m.cbCut(expr >= 1)
                         # print(f"Added user cut for cluster {cluster}")
-                self.stop_when_optimal(m, where)
+                # self.stop_when_optimal(m, where)
 
             m.optimize(lp_callback)
         else:
-            m.optimize(lambda m, where: self.stop_when_optimal(m, where))
+            # m.optimize(lambda m, where: self.stop_when_optimal(m, where))
+            m.optimize
 
         end_cpu = t.process_time()
         end_wall = t.perf_counter()
@@ -138,14 +139,33 @@ class DARPExperimentRunner:
             m.write(f"{model_name}.iis")
             raise SystemExit("Model infeasible; IIS written.")
 
-        z_values_1 = {}
-        for key, var in vars_['z'].items():
-            if abs(var.X) > 1e-6:
-                z_values_1[key] = int(var.X)
+        # z_values_1 = {}
+        # for key, var in vars_['z'].items():
+        #     if abs(var.X) > 1e-6:
+        #         z_values_1[key] = int(var.X)
 
-        z_values_all = {}
-        for key, var in vars_['z'].items(): 
-            z_values_all[key] = int(var.X)
+        # z_values_all = {}
+        # for key, var in vars_['z'].items(): 
+        #     z_values_all[key] = int(var.X)
+
+        # y_values_r4 = {}
+        # for key, var in vars_['y'].items():
+        #     if key[0] == 4:
+        #         y_values_r4[key] = int(var.X)
+
+        # debugger = {}
+        # debugger["fi_r (4, (4,1))"] = data_params['fi_r'][4, (4,1)]
+        # for i in range(11,13):
+        #     for j in range(1,3):
+        #         debugger[f"fi_r (4, ({i},{j}))"] = data_params['fi_r'][4, (i,j)]
+        # for j in range(1,3):
+        #     debugger[f'y (4,(4,1),(12,{j})'] = int(vars_['y'][4,(4,1),(12,j)].X)
+        #     debugger[f'y (4,(12,{j}),(4,1)'] = int(vars_['y'][4,(12,j),(4,1)].X)
+        #     debugger[f'y (4,(11,{j}),(1,1)'] = int(vars_['y'][4,(11,j),(1,1)].X)
+        #     debugger[f'y (4,(1,1),(11,{j})'] = int(vars_['y'][4,(1,1),(11,j)].X)
+        #     for i in range(1,3):
+        #         debugger[f'z (4,(12,{i},11,{j})'] = sum(int(vars_['z'][d,(12,i),(11,j)].X) for d in range(70))
+        #         debugger[f'z (4,(11,{j},12,{i})'] = sum(int(vars_['z'][d,(11,j),(12,i)].X) for d in range(70))
 
         # === Extract routes ===
         extractor = DARPRouteExtractor(
@@ -158,6 +178,14 @@ class DARPExperimentRunner:
         v1 , v2 = extractor.extract_vehicle_route_final()
         r1, r2, r3, r4 = extractor.extract_request_route_final()
         z1 = extractor.extract_PT_route_final()
+
+        ##### ===== Transfer Balance Debugging problem ===== #####
+
+        sum_balance = extractor.test_passenger_transfer_balance(v1, v2)
+        wrong_sum_balance = {}
+        for key, val in sum_balance.items():
+            if abs(val['diff']) > 1e-6:
+                wrong_sum_balance[key] = val
 
         # === Save results ===
         result = {
@@ -174,8 +202,10 @@ class DARPExperimentRunner:
             "PT Arcs used": str(z1),
             "CPU Time (s)": cpu_time,
             "Elapsed Time (s)": elapsed_time, 
-            "All values of z": z_values_all,
-            "z_values_1": z_values_1,  
+            # "All values of z": z_values_all,
+            # "z_values_1": z_values_1,
+            # "All valyes of y request 4": y_values_r4, 
+            "sum_balance": wrong_sum_balance, 
         }
         self.results.append(result)
         print(result)

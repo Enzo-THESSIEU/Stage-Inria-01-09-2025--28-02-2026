@@ -191,7 +191,7 @@ class DARPConstraintBuilder:
                     lhs_out = gb.quicksum(y[r, i, j] for j in N if (i, j) in A)
                     lhs_in  = gb.quicksum(y[r, j, i] for j in N if (j, i) in A)
                     z_out = gb.quicksum(z[(d, i, j)] for j in C if (i, j) in A and i != j and (self.base(i), self.base(j)) in Departures for d in Departures[(self.base(i), self.base(j))].keys())
-                    z_in  = gb.quicksum(z[(d, j, i)] for j in C if (i, j) in A and i != j and (self.base(j), self.base(i)) in Departures for d in Departures[(self.base(j), self.base(i))].keys())
+                    z_in  = gb.quicksum(z[(d, j, i)] for j in C if (j, i) in A and i != j and (self.base(j), self.base(i)) in Departures for d in Departures[(self.base(j), self.base(i))].keys())
                     self.m.addConstr(lhs_out + z_out - lhs_in - z_in == fi_r[(r, i)], name=f"pass_bal_transfer[{r},{i}]")
         else: 
             if Cr:
@@ -200,7 +200,7 @@ class DARPConstraintBuilder:
                         self.m.addConstr(
                             gb.quicksum(y[r,i,j] for j in N if (i,j) in A) + gb.quicksum(z[(i,j)] for j in Cr[r] if (i,j) in A)
                             - gb.quicksum(y[r,j,i] for j in N if (j,i) in A) - gb.quicksum(z[(j,i)] for j in Cr[r]if (j,i) in A)
-                            == fi_r[(r,i)],
+                            - fi_r[(r,i)] == 0,
                             name=f"pass_bal_transfer[{r},{i}]"
                         )
 

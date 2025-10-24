@@ -59,8 +59,8 @@ class DARPRouteExtractor:
                         i,
                         node_type,
                         req_id,
-                        f"Service time at node {j}",
-                        T_node[j].X if (j in T_node) else None,
+                        f"Service time at node {i}",
+                        T_node[i].X if (i in T_node) else None,
                     ]
         else:
             x = self.vars_["x"]
@@ -72,8 +72,8 @@ class DARPRouteExtractor:
                         i,
                         node_type,
                         req_id,
-                        f"Service time at node {j}",
-                        T_node[j].X if (j in T_node) else None,
+                        f"Service time at node {i}",
+                        T_node[i].X if (i in T_node) else None,
                     ]
 
         # --- Detect first trips (from depot) ---
@@ -162,6 +162,57 @@ class DARPRouteExtractor:
             req_routes.get(3, []),
             req_routes.get(4, []),
         )
+    
+    def test_passenger_transfer_balance(self, route1, route2):
+        nodes, N, P, D, C, F, R, K = (self.sets[k] for k in ["nodes","N","P","D","C","F","R","K"])
+        zeroDepot_node, endDepot_node, A = self.sets["zeroDepot"], self.sets["endDepot"], [tuple(a) for a in self.sets["A"]]
+        y, z, T_node = self.vars_["y"], self.vars_["z"], self.vars_["T_node"]
+        fi_r, Departures = self.params["fi_r"], self.params["Departures"]
+
+        sum_balance = {}
+
+        nodes_visited = []
+
+        for route in (route1, route2):
+            for step in route:
+                if isinstance(step, list) and len(step) > 1:
+                    node = step[1]  # e.g. (11,1)
+                    nodes_visited.append(node)
+
+        for r in R:
+            for node in nodes_visited:
+                sum_yij = sum(int(y[r, node, j].X) for j in N if (node, j) in A)
+                sum_yji = sum(int(y[r, j, node].X) for j in N if (j, node) in A)
+                sum_zij = 0
+                sum_zji = 0
+
+                if node in C:
+                    for j in C:
+                        if (node, j) in A and (self.base(node), self.base(j)) in Departures:
+                            for d in Departures[(self.base(node), self.base(j))]:
+                                sum_zij += int(z[d, node, j].X)
+                        if (j, node) in A and (self.base(j), self.base(node)) in Departures:
+                            for d in Departures[(self.base(j), self.base(node))]:
+                                sum_zji += int(z[d, j, node].X)
+
+                lhs = sum_yij + sum_zij - sum_yji - sum_zji
+                rhs = fi_r[(r, node)]
+                sum_balance[(r, node)] = {
+                    "y_out": sum_yij,
+                    "z_out": sum_zij,
+                    "y_in": sum_yji,
+                    "z_in": sum_zji,
+                    "lhs": lhs,
+                    "rhs": rhs,
+                    "diff": lhs - rhs
+                }
+
+        return sum_balance
+
+
+
+
+
     
     # def extract_PT_route_final(self):
 
