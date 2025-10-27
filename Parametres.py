@@ -3,7 +3,7 @@ import numpy as np
 
 class DARPDataBuilder:
     def __init__(self, duplicate_transfers=True, arc_elimination=True,
-                 ev_constraints=False, use_imjn=False, MoPS = False, max_visits_transfer=3):
+                 ev_constraints=False, use_imjn=False, MoPS = False, max_visits_transfer=5):
         self.duplicate_transfers = duplicate_transfers
         self.arc_elimination = arc_elimination
         self.ev_constraints = ev_constraints
@@ -359,30 +359,6 @@ class DARPDataBuilder:
             cij (dict): cost dictionary
         """
 
-        # # === Step 1. Build expanded t_transfer ===
-        # n_base = t.shape[0]
-        # n_trans = n_trans_nodes * (n_requests - 1 if duplicate else 1)
-        # n_charge = n_vehicles * n_trans_nodes if include_charging else (n_trans_nodes if not duplicate else 0)
-        # n_total = n_base + n_trans + n_charge
-
-        # dimension_base_matrix = max(set(nodes[:, 0])) + 1
-        # print("dimension_base_matrix build_tij:", dimension_base_matrix)
-
-        # t_transfer = np.zeros((n_total, n_total))
-
-        # # Base block
-        # t_transfer[:n_base, :n_base] = t
-
-        # if n_trans > 0 or n_charge > 0:
-        #     factor = (n_trans // n_trans_nodes + n_charge // n_trans_nodes)
-        #     # base → transfer/charging
-        #     t_transfer[:n_base, n_base:] = np.tile(t[:, dimension_base_matrix:dimension_base_matrix+n_trans_nodes], (1, factor))
-        #     # transfer/charging → base
-        #     t_transfer[n_base:, :n_base] = np.tile(t[dimension_base_matrix:dimension_base_matrix+n_trans_nodes, :], (factor, 1))
-        #     # transfer/charging → transfer/charging
-        #     t_transfer[n_base:, n_base:] = np.tile(t[dimension_base_matrix:dimension_base_matrix+n_trans_nodes, dimension_base_matrix:dimension_base_matrix+n_trans_nodes], (factor, factor))
-
-        # print("t_transfer", t_transfer)
         # === Step 2. Build tij, cij dicts ===
         tij = {(self.base(i), self.base(j)): float(t_transfer[self.base(i), self.base(j)]) for i in N for j in N}
 
@@ -503,9 +479,6 @@ class DARPDataBuilder:
                 [8, "dropoff", 4, "", "", 5, 0],
                 [9, "MoPS pickup", 5, 500, 1400, 5, 1],
                 [10, "MoPS dropoff", 5, "", "", 5, 0],
-                [12, "transfer", "", "", "", "", ""],
-                [13, "transfer", "", "", "", "", ""],
-                [14, "transfer", "", "", "", "", ""]
             ], dtype=object)
 
         else:
@@ -609,7 +582,7 @@ class DARPDataBuilder:
             n=n, pair_pi_di=pair_pi_di, pair_pi_di_M=pair_pi_di_M)
         
         tij_keys = params['tij'].keys()
-        sets["A"] = {(i, j) for i in N for j in N if (self.base(i), self.base(j)) in tij_keys}
+        sets["A"] = {(i, j) for i in N for j in N if (self.base(i), self.base(j)) in tij_keys and self.base(i) != self.base(j)}
 
         if self.duplicate_transfers:
             params["Cr"] = Cr 
@@ -632,18 +605,19 @@ class DARPDataBuilder:
     
 if __name__ == "__main__":
     builder = DARPDataBuilder(
-        duplicate_transfers=False,
+        duplicate_transfers=True,
         arc_elimination=True,
         ev_constraints=False,
-        use_imjn=True
+        use_imjn=False,
+        MoPS=True
     )
     sets, params = builder.build()
     print("✅ Build complete.")
-    # print("Node definition:", sets['nodes'])
+    print("Node definition:", sets['nodes'])
     print("Number of nodes:", len(sets["N"]))
     print("Number of arcs:", len(sets["A"]))
     print("Travel time dict size:", len(params["tij"]))
-    print("f_ir:", params['fi_r'])
+    # print("f_ir:", params['fi_r'])
     # print("tij: ", params['tij'])
     print("ei:", params['ei'])
     print("li:", params['li'])

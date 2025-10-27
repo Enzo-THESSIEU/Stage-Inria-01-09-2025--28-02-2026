@@ -38,7 +38,8 @@ class DARPExperimentRunner:
             duplicate_transfers=bool_params["duplicate_transfers"],
             arc_elimination=bool_params["arc_elimination"],
             ev_constraints=bool_params["ev_constraints"],
-            use_imjn=bool_params["use_imjn"]
+            use_imjn=bool_params["use_imjn"],
+            MoPS=bool_params["MoPS"]
         )
         data_sets, data_params = data_builder.build()
 
@@ -175,17 +176,17 @@ class DARPExperimentRunner:
             params = data_params,
             options = bool_params
             )
-        v1 , v2 = extractor.extract_vehicle_route_final()
+        v1 , v2, used_arcs = extractor.extract_vehicle_route_final()
         r1, r2, r3, r4 = extractor.extract_request_route_final()
         z1 = extractor.extract_PT_route_final()
 
         ##### ===== Transfer Balance Debugging problem ===== #####
-
-        sum_balance = extractor.test_passenger_transfer_balance(v1, v2)
-        wrong_sum_balance = {}
-        for key, val in sum_balance.items():
-            if abs(val['diff']) > 1e-6:
-                wrong_sum_balance[key] = val
+        if bool_params['timetabled_departures']:
+            sum_balance = extractor.test_passenger_transfer_balance(v1, v2)
+            wrong_sum_balance = {}
+            for key, val in sum_balance.items():
+                if abs(val['diff']) > 1e-6:
+                    wrong_sum_balance[key] = val
 
         # === Save results ===
         result = {
@@ -199,13 +200,14 @@ class DARPExperimentRunner:
             "Request 2 Route": str(r2),
             "Request 3 Route": str(r3),
             "Request 4 Route": str(r4),
-            "PT Arcs used": str(z1),
+            # "PT Arcs used": str(z1),
+            # "All DAR Arcs used": str(used_arcs),
             "CPU Time (s)": cpu_time,
             "Elapsed Time (s)": elapsed_time, 
             # "All values of z": z_values_all,
             # "z_values_1": z_values_1,
             # "All valyes of y request 4": y_values_r4, 
-            "sum_balance": wrong_sum_balance, 
+            # "sum_balance": wrong_sum_balance, 
         }
         self.results.append(result)
         print(result)
@@ -465,6 +467,7 @@ if __name__ == "__main__":
         "ev_constraints": False,
         "timetabled_departures": True,
         "use_imjn": True,
+        "MoPS": False
     }
 
     runner = DARPExperimentRunner(time_limit=TIME_LIMIT)

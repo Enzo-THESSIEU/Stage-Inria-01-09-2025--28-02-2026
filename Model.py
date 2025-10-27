@@ -35,6 +35,7 @@ class DARPModelBuilder:
         ev_constraints = self.options.get("ev_constraints", False)
         timetabled_departures = self.options.get("timetabled_Departures", False)
         use_imjn = self.options.get("use_imjn", False)
+        MoPS = self.options.get("MoPS", False)
         clusters = []
 
         # === Step 2: Build Model ===
@@ -87,6 +88,9 @@ class DARPModelBuilder:
         if use_imjn:
             print("checking this constraint")
             constraint_builder.add_artificial_node_constraints()
+
+        if MoPS:
+            constraint_builder.add_MoPS_constraints()
 
         # === Finalize ===
         m.update()

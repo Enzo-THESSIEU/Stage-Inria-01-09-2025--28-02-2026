@@ -102,7 +102,7 @@ class DARPRouteExtractor:
                 if stuck_counter == 3:
                     print("⚠️ No progress in vehicle stitching — breaking loop.")
                     break
-        return used_arcs_vehicle_1, used_arcs_vehicle_2
+        return used_arcs_vehicle_1, used_arcs_vehicle_2, used_arcs
 
     def extract_request_route_final(self):
 

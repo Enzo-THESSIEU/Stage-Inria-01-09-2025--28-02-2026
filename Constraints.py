@@ -106,7 +106,7 @@ class DARPConstraintBuilder:
 
     # === Constraint groups ===
     def add_vehicle_logic_constraints(self):
-        nodes, N, P, D, C, F, R, K, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
+        nodes, N, P, D, C, F, R, K, P_M, D_M, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets['P_M'], self.sets['D_M'], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
         v, x, y = self.vars_["v"], self.vars_["x"], self.vars_["y"]
         zeroDepot_node, endDepot_node = zeroDepot, endDepot
 
@@ -181,40 +181,73 @@ class DARPConstraintBuilder:
                                     name=f"passenger_vehicle_link[{r},{i},{j}]")
 
     def add_passenger_balance_constraints(self):
-        nodes, N, P, D, C, F, R, K, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
+        nodes, N, P, D, C, F, R, K, P_M, D_M, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets['P_M'], self.sets['D_M'], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
         y, z = self.vars_["y"], self.vars_["z"]
         Cr, fi_r, Departures = self.params["Cr"], self.params["fi_r"], self.params["Departures"]
 
+        # if self.timetabled_departures and Departures != None:
+        #     for r in R:
+        #         for i in C:
+        #             lhs_out = gb.quicksum(y[r, i, j] for j in N if (i, j) in A)
+        #             lhs_in  = gb.quicksum(y[r, j, i] for j in N if (j, i) in A)
+        #             z_out = gb.quicksum(z[(d, i, j)] for j in C if (i, j) in A and i != j and (self.base(i), self.base(j)) in Departures for d in Departures[(self.base(i), self.base(j))].keys())
+        #             z_in  = gb.quicksum(z[(d, j, i)] for j in C if (j, i) in A and i != j and (self.base(j), self.base(i)) in Departures for d in Departures[(self.base(j), self.base(i))].keys())
+        #             self.m.addConstr(lhs_out + z_out - lhs_in - z_in == fi_r[(r, i)], name=f"pass_bal_transfer[{r},{i}]")
+        # else: 
+        #     if Cr:
+        #         for r in R:
+        #             for i in Cr[r]:
+        #                 self.m.addConstr(
+        #                     gb.quicksum(y[r,i,j] for j in N if (i,j) in A) + gb.quicksum(z[(i,j)] for j in Cr[r] if (i,j) in A)
+        #                     - gb.quicksum(y[r,j,i] for j in N if (j,i) in A) - gb.quicksum(z[(j,i)] for j in Cr[r]if (j,i) in A)
+        #                     - fi_r[(r,i)] == 0,
+        #                     name=f"pass_bal_transfer[{r},{i}]"
+        #                 )
+
+        # # non-transfer nodes
+        # for r in R:
+        #     for i in N:
+        #         if i not in C:
+        #             self.m.addConstr(
+        #                 gb.quicksum(y[r,i,j] for j in N if (i,j) in A) - gb.quicksum(y[r,j,i] for j in N if (j,i) in A) == fi_r[(r,i)],
+        #                 name=f"pass_bal_nontransfer[{r},{i}]"
+        #             )
+
         if self.timetabled_departures and Departures != None:
             for r in R:
+                for i in N: # + P_M + D_M:
+                    if i not in C:
+                        sum_pickup = gb.quicksum(y[r, i ,j] for j in N if (i,j) in A)
+                        sum_dropoff = gb.quicksum(y[r, j, i] for j in N if (j,i) in A)
+                        self.m.addConstr(sum_pickup - sum_dropoff == fi_r[r,i], name = "Passenger Balance non transfer nodes")
+
+            for r in R:    
                 for i in C:
-                    lhs_out = gb.quicksum(y[r, i, j] for j in N if (i, j) in A)
-                    lhs_in  = gb.quicksum(y[r, j, i] for j in N if (j, i) in A)
-                    z_out = gb.quicksum(z[(d, i, j)] for j in C if (i, j) in A and i != j and (self.base(i), self.base(j)) in Departures for d in Departures[(self.base(i), self.base(j))].keys())
-                    z_in  = gb.quicksum(z[(d, j, i)] for j in C if (j, i) in A and i != j and (self.base(j), self.base(i)) in Departures for d in Departures[(self.base(j), self.base(i))].keys())
-                    self.m.addConstr(lhs_out + z_out - lhs_in - z_in == fi_r[(r, i)], name=f"pass_bal_transfer[{r},{i}]")
+                    sum_pickup = gb.quicksum(y[r, i ,j] for j in N if (i,j) in A)
+                    sum_dropoff = gb.quicksum(y[r, j, i] for j in N if (j,i) in A)
+                    z_sum_pickup = gb.quicksum(z[d, i, j] for j in C if (i,j) in A and (self.base(i), self.base(j)) in Departures for d in Departures[(self.base(i),self.base(j))])
+                    z_sum_dropoff = gb.quicksum(z[d, j, i] for j in C if (j,i) in A and (self.base(j), self.base(i)) in Departures for d in Departures[self.base(j), self.base(i)])
+                    self.m.addConstr(sum_pickup + z_sum_pickup - sum_dropoff - z_sum_dropoff == fi_r[r,i], name= "Passenger Balance Transfer Nodes")
+
         else: 
+            for r in R:
+                for i in N: # + P_M + D_M:
+                    if i not in C:
+                        sum_pickup = gb.quicksum(y[r, i ,j] for j in N if (i,j) in A)
+                        sum_dropoff = gb.quicksum(y[r, j, i] for j in N if (j,i) in A)
+                        self.m.addConstr(sum_pickup - sum_dropoff == fi_r[r,i], name = "Passenger Balance non transfer nodes")
+
             if Cr:
                 for r in R:
                     for i in Cr[r]:
-                        self.m.addConstr(
-                            gb.quicksum(y[r,i,j] for j in N if (i,j) in A) + gb.quicksum(z[(i,j)] for j in Cr[r] if (i,j) in A)
-                            - gb.quicksum(y[r,j,i] for j in N if (j,i) in A) - gb.quicksum(z[(j,i)] for j in Cr[r]if (j,i) in A)
-                            - fi_r[(r,i)] == 0,
-                            name=f"pass_bal_transfer[{r},{i}]"
-                        )
-
-        # non-transfer nodes
-        for r in R:
-            for i in N:
-                if i not in C:
-                    self.m.addConstr(
-                        gb.quicksum(y[r,i,j] for j in N if (i,j) in A) - gb.quicksum(y[r,j,i] for j in N if (j,i) in A) == fi_r[(r,i)],
-                        name=f"pass_bal_nontransfer[{r},{i}]"
-                    )
+                        sum_pickup = gb.quicksum(y[r, i ,j] for j in N if (i,j) in A)
+                        sum_dropoff = gb.quicksum(y[r, j, i] for j in N if (j,i) in A)
+                        z_sum_pickup = gb.quicksum(z[(i, j)] for j in Cr[r] if (i,j) in A)
+                        z_sum_dropoff = gb.quicksum(z[(j, i)] for j in Cr[r] if (j,i) in A)
+                        self.m.addConstr(sum_pickup + z_sum_pickup - sum_dropoff - z_sum_dropoff == fi_r[r,i], name= "Passenger Balance Transfer Nodes")
 
     def add_capacity_constraints(self):
-        nodes, N, P, D, C, F, R, K, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
+        nodes, N, P, D, C, F, R, K, P_M, D_M, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets['P_M'], self.sets['D_M'], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
         x, v, y = self.vars_['x'], self.vars_["v"], self.vars_["y"]
         qr, Q = self.params["qr"], self.params["Q"]
         if self.variable_substitution:
@@ -226,7 +259,7 @@ class DARPConstraintBuilder:
                 self.m.addConstr(gb.quicksum(qr[r] * y[r,i,j] for r in R) <= Q * gb.quicksum(x[k,i,j] for k in K))
 
     def add_time_consistency_constraints(self):
-        nodes, N, P, D, C, F, R, K, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
+        nodes, N, P, D, C, F, R, K, P_M, D_M, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets['P_M'], self.sets['D_M'], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
         x, v, z, T_node, T_veh, D_node = self.vars_["x"], self.vars_["v"], self.vars_["z"], self.vars_["T_node"], self.vars_["T_veh"], self.vars_["D_node"]
         tij, di, ei, li, ek, lk, Lbar, M, T, Cr = self.params["tij"], self.params["di"], self.params["ei"], self.params["li"], self.params["ek"], self.params["lk"], self.params['Lbar'], self.params["M"], self.params["T"], self.params['Cr']
         pair_pi_di = self.params["pair_pi_di"]
@@ -341,7 +374,7 @@ class DARPConstraintBuilder:
                 self.m.addConstr(T_veh[k] <= lk[k], name=f"veh_dep_hi[{k}]")
 
     def add_variable_substitution_constraints(self):
-        nodes, N, P, D, C, F, R, K, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
+        nodes, N, P, D, C, F, R, K, P_M, D_M, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets['P_M'], self.sets['D_M'], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
         v, x = self.vars_["v"], self.vars_["x"]
         zeroDepot_node = zeroDepot
 
@@ -350,7 +383,7 @@ class DARPConstraintBuilder:
                 self.m.addConstr(v[i,j] == gb.quicksum(x[k,i,j] for k in K))
 
     def add_transfer_node_constraints(self):
-        nodes, N, P, D, C, F, R, K, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
+        nodes, N, P, D, C, F, R, K, P_M, D_M, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets['P_M'], self.sets['D_M'], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
         x, v, z = self.vars_['x'], self.vars_["v"], self.vars_["z"]
         Cr, Departures = self.params['Cr'], self.params["Departures"]
         
@@ -384,9 +417,8 @@ class DARPConstraintBuilder:
                     self.m.addConstr(gb.quicksum(gb.quicksum(x[k,i,j] for k in K) for i in Cr[r] for j in N if (i,j) in A) <= 2)    
         
     def add_battery_constraints(self):
-        nodes, N, P, D, C, F, R, K, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
-        x, v, B_node, E_node = self.vars_['x'], self.vars_["v"], self.vars_["B_node"], self.vars_["E_node"]
-        
+        nodes, N, P, D, C, F, R, K, P_M, D_M, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets['P_M'], self.sets['D_M'], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
+        x, v, B_node, E_node = self.vars_['x'], self.vars_["v"], self.vars_["B_node"], self.vars_["E_node"]        
         tij = self.params["tij"]
         beta, alpha, C_bat, gamma = self.params["beta"], self.params["alpha"], self.params["C_bat"], self.params["gamma"]
 
@@ -411,30 +443,30 @@ class DARPConstraintBuilder:
         # init SOC
         self.m.addConstr(B_node[zeroDepot] == C_bat)
 
-    def add_scheduled_PT_constraints(self):
-        nodes, N, P, D, C, F, R, K, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
-        z, T_node = self.vars_["z"], self.vars_["T_node"]
-        M, Departures, tij = self.params["M"], self.params["Departures"], self.params['tij']
+    # def add_scheduled_PT_constraints(self):
+    #     nodes, N, P, D, C, F, R, K, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
+    #     z, T_node = self.vars_["z"], self.vars_["T_node"]
+    #     M, Departures, tij = self.params["M"], self.params["Departures"], self.params['tij']
 
-        for i in N:
-            if i not in C:
-                self.m.addConstr(
-                    M*(1 - gb.quicksum(z[(d,i,j)] for j in C if (i, j) in A and i != j and (self.base(j), self.base(i)) in Departures for d in Departures[(self.base(i),self.base(j))].keys())) +
-                    gb.quicksum(Departures[(self.base(i),self.base(j))][d] * z[(d,i,j)] for j in C if (i,j) in A and i!=j and (self.base(i),self.base(j)) in Departures for d in Departures[(self.base(i),self.base(j))].keys())
-                    - T_node[i] >= 0
-                )
-        for i in C:
-            expr = gb.quicksum(
-                (Departures[(self.base(i), self.base(j))][d] + tij[self.base(i), self.base(j)]) * z[d, i, j]
-                for j in C
-                if (i, j) in A
-                and (self.base(i), self.base(j)) in Departures
-                for d in Departures[(self.base(i), self.base(j))].keys()
-            )
-            self.m.addConstr(T_node[i] - expr >= 0, name=f"PT_departure_after_arrival_{i}")
+    #     for i in N:
+    #         if i not in C:
+    #             self.m.addConstr(
+    #                 M*(1 - gb.quicksum(z[(d,i,j)] for j in C if (i, j) in A and i != j and (self.base(j), self.base(i)) in Departures for d in Departures[(self.base(i),self.base(j))].keys())) +
+    #                 gb.quicksum(Departures[(self.base(i),self.base(j))][d] * z[(d,i,j)] for j in C if (i,j) in A and i!=j and (self.base(i),self.base(j)) in Departures for d in Departures[(self.base(i),self.base(j))].keys())
+    #                 - T_node[i] >= 0
+    #             )
+    #     for i in C:
+    #         expr = gb.quicksum(
+    #             (Departures[(self.base(i), self.base(j))][d] + tij[self.base(i), self.base(j)]) * z[d, i, j]
+    #             for j in C
+    #             if (i, j) in A
+    #             and (self.base(i), self.base(j)) in Departures
+    #             for d in Departures[(self.base(i), self.base(j))].keys()
+    #         )
+    #         self.m.addConstr(T_node[i] - expr >= 0, name=f"PT_departure_after_arrival_{i}")
 
     def add_scheduled_PT_constraints(self):
-        nodes, N, P, D, C, F, R, K, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
+        nodes, N, P, D, C, F, R, K, P_M, D_M, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets['P_M'], self.sets['D_M'], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
         z, a, T_node, y = self.vars_["z"], self.vars_["a"], self.vars_["T_node"], self.vars_["y"]
         M, tij, Departures = self.params["M"], self.params['tij'], self.params["Departures"]
 
@@ -501,7 +533,7 @@ class DARPConstraintBuilder:
 
 
     def add_artificial_node_constraints(self):
-        nodes, N, P, D, C, F, R, K, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
+        nodes, N, P, D, C, F, R, K, P_M, D_M, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets['P_M'], self.sets['D_M'], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
         M = self.params['M']
         z, a, T_node = self.vars_["z"], self.vars_["a"], self.vars_['T_node']
         for (i,m_) in N:
@@ -512,14 +544,14 @@ class DARPConstraintBuilder:
 
 
 
-    # def add_MoPS_constraints(self):
-    #     nodes, N, P, D, C, F, R, K, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
-    #     v = self.vars_['v']
-    #     pair_pi_di = self.params['pair_pi_di']
-    #     for i in P_M + D_M:
-    #         self.m.addConstr(gb.quicksum(v[i,j] for j in N if (i,j) in A) <= 1, name="Each MoPS entered less than 1.5 (exit)")
-    #         self.m.addConstr(gb.quicksum(v[j,i] for j in N if (j,i) in A) <= 1, name="Each MoPS entered less than 1.5 (entry)")
+    def add_MoPS_constraints(self):
+        nodes, N, P, D, C, F, R, K, P_M, D_M, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets['P_M'], self.sets['D_M'], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
+        v = self.vars_['v']
+        pair_pi_di_M = self.params['pair_pi_di_M']
+        for i in P_M + D_M:
+            self.m.addConstr(gb.quicksum(v[i,j] for j in N if (i,j) in A) <= 1, name="Each MoPS entered less than 1.5 (exit)")
+            self.m.addConstr(gb.quicksum(v[j,i] for j in N if (j,i) in A) <= 1, name="Each MoPS entered less than 1.5 (entry)")
 
-    #     for i in P_M:
-    #         self.m.addConstr(gb.quicksum(v[i,j] for j in N in (i,j) in A) - gb.quicksum(v[pair_pi_di(i), j] for j in N if (pair_pi_di(i), j) in A) == 0, name="Every Picked-up MoPS request must be dropped off")
+        for i in P_M:
+            self.m.addConstr(gb.quicksum(v[i,j] for j in N if (i,j) in A) - gb.quicksum(v[pair_pi_di_M[i], j] for j in N if (pair_pi_di_M[i], j) in A) == 0, name="Every Picked-up MoPS request must be dropped off")
 
