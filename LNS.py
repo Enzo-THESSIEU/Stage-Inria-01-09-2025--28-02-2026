@@ -23,6 +23,9 @@ class initial_solution:
 
     def base(self, i):
         return i[0] if isinstance(i, tuple) else i
+    
+    def base_set(self, node_list):
+        return set(self.base(i) for i in node_list)
 
     def order_by_earliest_time_window(self, unsorted_set):
         ei = self.params['ei']  # dict: {node: earliest_time}
@@ -90,40 +93,78 @@ class initial_solution:
     ### === Algorithm 4 in Overleaf: Cluster-Based Intial Solution === ###
 
     def find_closest_transfer_pickup(self, node):
+        C = self.base_set(self.sets['C'])
         tij = self.params['tij']
-        C = self.sets['C']
         closest_node = None
         dist = float('inf')
         for transfer_node in C:
-            if tij[self.base(node), self.base(transfer_node)] < dist:
+            if tij[node, transfer_node] < dist:
                 closest_node = transfer_node
                 dist = tij[node, transfer_node]
         return closest_node
     
     def find_closest_transfer_dropoff(self, node):
+        C = self.base_set(self.sets['C'])
         tij = self.params['tij']
-        C = self.sets['C']
         closest_node = None
         dist = float('inf')
         for transfer_node in C:
-            if tij[self.base(transfer_node), self.base(node)] < dist:
+            if tij[transfer_node, node] < dist:
                 closest_node = transfer_node
                 dist = tij[transfer_node, node]
         return closest_node
 
-    def define_PT_clusters(self):
-        tij = self.params['tij']
-        C = self.sets['C']
-        P = self.sets['P']
-        D = self.sets['D']
-        preliminary_cluster = {}
+    def define_PT_preliminary_clusters(self):
+        P = self.base_set(self.sets['P'])
+        D = self.base_set(self.sets['D'])
+        preliminary_clusters = {}
         for p in P:
             closest_node = self.find_closest_transfer_pickup(p)
-            preliminary_cluster[closest_node] += [p]
+            preliminary_clusters[closest_node] += [p]
         for d in D:
             closest_node = self.find_closest_transfer_dropoff(d)
-            preliminary_cluster[closest_node] += [d]
-            
+            preliminary_clusters[closest_node] += [d]
+        return preliminary_clusters
+
+    def define_cluster_score(self, preliminary_clusters, C, tij):
+        cluster_key, max_cluster = max(
+                            preliminary_clusters.items(),
+                            key=lambda item: len(item[1])
+                        )
+        max_tij = max(tij[min(C):max(C), min(C):max(C)])
+        C_score = {}
+        if self.n_veh < len(C):
+            for i, i_idx in enumerate(C):
+                for j, j_idx in enumerate(C):
+                    if i_idx < j_idx:
+                        C_score[i, j] = (len(preliminary_clusters[i]) + len(preliminary_clusters[j])) / max_cluster + tij[i, j] / max_tij
+        return C_score
+    
+    def calculate_new_tij(link):
+        i = link[0]
+        j = link[1]
+        tij_1 = tij[:]
+
+
+    
+    def combine_clusters(self):
+        preliminary_clusters = self.define_PT_preliminary_clusters()
+        C = self.base_set(self.sets['C'])
+        tij_transfer_nodes = self.params['tij'][min(C):max(C), min(C):max(C)]
+        while len(C) > self.n_veh:
+            C_score = self.define_cluster_score(preliminary_clusters, C, tij_transfer_nodes)
+            link, link_val = min(C_score.items())
+            del C_score[link]
+            del preliminary_clusters[link[0]]
+            del preliminary_clusters[link[1]]
+            C.remove(link[0], link[1])
+            C.add(link)
+
+
+
+
+
+        
 
 
     ### === Change the routes that have been found to be understood by gurobi variables === ###
@@ -136,7 +177,33 @@ class initial_solution:
 
 
             
-            
+class destroy_operators:
+    def __init__(self, m, vars_, sets, params, **IDARPoptions):
+        self.m = m
+        self. vars_ = vars_
+        self.sets = sets
+        self.params = params
+        self.duplicate_transfers = IDARPoptions.get("duplicate_transfers", True)
+        self.arc_elimination = IDARPoptions.get("arc_elimination", True)
+        self.variable_substitution = IDARPoptions.get("variable_substitution", True)
+        self.subtour_elimination = IDARPoptions.get("subtour_elimination", True)
+        self.transfer_node_strengthening = IDARPoptions.get("transfer_node_strengthening", True)
+        self.ev_constraints = IDARPoptions.get("ev_constraints", False)
+        self.timetabled_departures = IDARPoptions.get("timetabled_departures", False)
+        self.use_imjn = IDARPoptions.get("use_imjn", False)
+        self.MoPS = IDARPoptions.get("MoPS", False)
+
+    def base(self, i):
+        return i[0] if isinstance(i, tuple) else i
+    
+    def base_set(self, node_list):
+        return set(self.base(i) for i in node_list)
+
+    def random_removal(self, lambda_val):
+        num_removals = int(lambda_val * len(self.params['P']))
+        for a in range(num_removals):
+
+        
             
 
 
