@@ -9,6 +9,7 @@ from Model import DARPModelBuilder
 from routes_2 import DARPRouteExtractor
 from Parametres import DARPDataBuilder
 from Cluster_Heuristic import DARPHeuristic  # assuming you renamed Cluster_Heuristic to this
+from model_verification import write_model_verification_report
 
 class DARPExperimentRunner:
     def __init__(self, time_limit=2 * 60 * 60):
@@ -125,7 +126,9 @@ class DARPExperimentRunner:
             m.optimize(lp_callback)
         else:
             # m.optimize(lambda m, where: self.stop_when_optimal(m, where))
-            m.optimize
+            m.optimize()
+
+        write_model_verification_report(m = m, file_path="C:\\Users\\enzot\\Documents\\Césure\\1ère césure inria Lille\\Codes\\Stage-Inria-01-09-2025--28-02-2026\\test1.txt")
 
         end_cpu = t.process_time()
         end_wall = t.perf_counter()
@@ -140,19 +143,23 @@ class DARPExperimentRunner:
             m.write(f"{model_name}.iis")
             raise SystemExit("Model infeasible; IIS written.")
 
-        # z_values_1 = {}
-        # for key, var in vars_['z'].items():
-        #     if abs(var.X) > 1e-6:
-        #         z_values_1[key] = int(var.X)
+        z_values_1 = {}
+        for key, var in vars_['z'].items():
+            if abs(var.X) > 1e-6:
+                z_values_1[key] = int(var.X)
 
-        # z_values_all = {}
-        # for key, var in vars_['z'].items(): 
-        #     z_values_all[key] = int(var.X)
+        z_values_all = {}
+        for key, var in vars_['z'].items(): 
+            z_values_all[key] = int(var.X)
 
-        # y_values_r4 = {}
-        # for key, var in vars_['y'].items():
-        #     if key[0] == 4:
-        #         y_values_r4[key] = int(var.X)
+        y_values_r4 = {}
+        for key, var in vars_['y'].items():
+            if key[0] == 4:
+                y_values_r4[key] = int(var.X)
+
+        # a_values = {}
+        # for key, var in vars_['a'].items():
+        #     a_values[key] = int(var.X)
 
         # debugger = {}
         # debugger["fi_r (4, (4,1))"] = data_params['fi_r'][4, (4,1)]
@@ -208,6 +215,7 @@ class DARPExperimentRunner:
             # "z_values_1": z_values_1,
             # "All valyes of y request 4": y_values_r4, 
             # "sum_balance": wrong_sum_balance, 
+            # "a_values": a_values,
         }
         self.results.append(result)
         print(result)
@@ -459,14 +467,14 @@ class DARPExperimentRunner:
 if __name__ == "__main__":
     TIME_LIMIT = 2 * 60 * 60
     bool_params_singular = {
-        "duplicate_transfers": False,
+        "duplicate_transfers": True,
         "arc_elimination": True,
         "variable_substitution": True,
         "subtour_elimination": True,
         "transfer_node_strengthening": True,
         "ev_constraints": False,
-        "timetabled_departures": True,
-        "use_imjn": True,
+        "timetabled_departures": False,
+        "use_imjn": False,
         "MoPS": False
     }
 
