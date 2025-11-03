@@ -4,17 +4,17 @@ import gurobipy as gb
 class DARPConstraintBuilder:
     def __init__(self, m, vars_, sets, params, duplicate_transfers=True, arc_elimination=True, variable_substitution=True, subtour_elimination=True, transfer_node_strengthening=True,
                  ev_constraints=False, timetabled_departures=False, use_imjn=False, MoPS = False):
-        self.duplicate_transfers = duplicate_transfers,
-        self.arc_elimination = arc_elimination,
-        self.variable_substitution = variable_substitution,
-        self.subtour_elimination = subtour_elimination,
-        self.transfer_node_strengthening = transfer_node_strengthening,
-        self.ev_constraints = ev_constraints,
-        self.timetabled_departures = timetabled_departures,
+        self.duplicate_transfers = duplicate_transfers
+        self.arc_elimination = arc_elimination
+        self.variable_substitution = variable_substitution
+        self.subtour_elimination = subtour_elimination
+        self.transfer_node_strengthening = transfer_node_strengthening
+        self.ev_constraints = ev_constraints
+        self.timetabled_departures = timetabled_departures
         self.use_imjn = use_imjn
         self.MoPS = MoPS
         self.m = m
-        self.vers_= vars_
+        self.vars_ = vars_
         self.sets = sets
         self.params = params
     
@@ -48,7 +48,6 @@ class DARPConstraintBuilder:
         ### --- Developments ---
         # Optional variables
         v, a, B_node, E_node = None, None, None, None
-        z = {}
 
         # Variable Substitution
         if self.variable_substitution:
@@ -67,22 +66,41 @@ class DARPConstraintBuilder:
         if self.use_imjn:
             a = self.m.addVars(N, vtype=gb.GRB.BINARY, name="a")
 
-        elif C:  
-            # Transfer Original Modeling
-            for i in C:
-                for j in C:
-                    z[(i, j)] = self.m.addVar(vtype=gb.GRB.BINARY, name=f"z[{i},{j}]")
+        # elif C:  
+        #     # Transfer Original Modeling
+        #     for i in C:
+        #         for j in C:
+        #             z[(i, j)] = self.m.addVar(vtype=gb.GRB.BINARY, name=f"z[{i},{j}]")
+
+        # # --- Build z keys deterministically ---
+        # z = {}
+        # if self.timetabled_departures and Departures:
+        #     # List of admissible (d,i,j) keys
+        #     z_keys = []
+        #     for i in C:
+        #         for j in C:
+        #             base_pair = (self.base(i), self.base(j))
+        #             if base_pair in Departures:       # <-- important: check base(i),base(j)
+        #                 for d in Departures[base_pair].keys():
+        #                     # (optionally: don’t gate by (i,j) in A unless you're sure A has C->C arcs)
+        #                     z_keys.append((d, i, j))
+        #     # Build as a tupledict:
+        #     z = self.m.addVars(z_keys, vtype=gb.GRB.BINARY, name="z")
+        # else:
+        #     # Non-timetabled: 2-index z
+        #     z_keys = [(i, j) for i in C for j in C]    # avoid filtering by A unless needed
+        #     z = self.m.addVars(z_keys, vtype=gb.GRB.BINARY, name="z")
+
+        # if self.use_imjn:
+        #     a = self.m.addVars(N, vtype=gb.GRB.BINARY, name="a")
 
         # EV-specific variables
         if self.ev_constraints:
             B_node = self.m.addVars(N, vtype=gb.GRB.CONTINUOUS, name="B_node")  # battery SOC
             E_node = self.m.addVars(F, vtype=gb.GRB.CONTINUOUS, name="E_node")  # recharge time
 
-        return {
-            "x": x, "v": v, "y": y, "z": z,
-            "T_node": T_node, "T_veh": T_veh, "D_node": D_node,
-            "a": a, "B_node": B_node, "E_node": E_node
-        }
+        self.vars_ = {"x": x, "v": v, "y": y, "z": z, "T_node": T_node, "T_veh": T_veh, "D_node": D_node, "a": a, "B_node": B_node, "E_node": E_node}
+        return self.vars_
 
     # === Objective ===
     def set_objective(self, w = [1,0,0,0]):
@@ -278,6 +296,10 @@ class DARPConstraintBuilder:
                         )
 
             # (2) Passenger balance for transfer nodes with timetabled departures
+
+            added_cnt = 0
+            empty_rows = []
+
             for r in R:
                 for i in C:
                     sum_pickup  = gb.quicksum(y[r, i, j] for j in N if (i, j) in A)
@@ -286,24 +308,48 @@ class DARPConstraintBuilder:
                     z_sum_pickup = gb.quicksum(
                         z[d, i, j]
                         for j in C
-                        if (i, j) in A and (self.base(i), self.base(j)) in Departures
+                        if (self.base(i), self.base(j)) in Departures
                         for d in Departures[(self.base(i), self.base(j))]
                     )
+
 
                     z_sum_dropoff = gb.quicksum(
                         z[d, j, i]
                         for j in C
-                        if (j, i) in A and (self.base(j), self.base(i)) in Departures
+                        if (self.base(j), self.base(i)) in Departures
                         for d in Departures[(self.base(j), self.base(i))]
                     )
 
                     self.m.addConstr(
-                        sum_pickup + z_sum_pickup - sum_dropoff - z_sum_dropoff == fi_r[r, i],
+                        sum_pickup + z_sum_pickup - sum_dropoff - z_sum_dropoff >= fi_r[r, i],
                         name=(
                             f"∑_j y[{r},i,j] + ∑_d∑_j z[d,i,j] - ∑_j y[{r},j,i] - ∑_d∑_j z[d,j,i] "
-                            f"= fi_r[{r},{i}]  ∀i∈C"
+                            f">= fi_r[{r},{i}]  ∀i∈C"
                         )
                     )
+
+                    self.m.addConstr(
+                        sum_pickup + z_sum_pickup - sum_dropoff - z_sum_dropoff <= fi_r[r, i],
+                        name=(
+                            f"∑_j y[{r},i,j] + ∑_d∑_j z[d,i,j] - ∑_j y[{r},j,i] - ∑_d∑_j z[d,j,i] "
+                            f"<= fi_r[{r},{i}]  ∀i∈C"
+                        )
+                    )
+                
+                print(f"[DEBUG] PT passenger-balance constraints added: {added_cnt}")
+                print(f"[DEBUG] Empty rows (would be removed by presolve): {empty_rows[:10]} (total {len(empty_rows)})")
+
+                for r in R:
+                    for i in C:
+                        # If passenger arrives to i by DAR, they must depart by PT
+                        self.m.addConstr(
+                            gb.quicksum(y[r, j, i] for j in N if (j,i) in A and (r,j,i) in y)
+                            <= gb.quicksum(z[d, i, j] for j in C
+                                        for d in self.params["Departures"].get((self.base(i), self.base(j)), {}).keys()
+                                        if (d,i,j) in z),
+                            name=f"link_arriveDAR_departPT[{r},{i}]"
+                        )
+
 
         # === ELSE: Non-timetabled version ===
         else:
@@ -318,10 +364,32 @@ class DARPConstraintBuilder:
                             name=f"∑_j y[{r},i,j] - ∑_j y[{r},j,i] = fi_r[{r},{i}]  ∀i∉C"
                         )
 
+            # # (2') Passenger balance for transfer nodes (without timetabled departures)
+            # if Cr:
+            #     for r in R:
+            #         for i in Cr[r]:
+            #             sum_pickup  = gb.quicksum(y[r, i, j] for j in N if (i, j) in A)
+            #             sum_dropoff = gb.quicksum(y[r, j, i] for j in N if (j, i) in A)
+
+            #             z_sum_pickup = gb.quicksum(
+            #                 z[(i, j)] for j in Cr[r] if (i, j) in A
+            #             )
+            #             z_sum_dropoff = gb.quicksum(
+            #                 z[(j, i)] for j in Cr[r] if (j, i) in A
+            #             )
+
+            #             self.m.addConstr(
+            #                 sum_pickup + z_sum_pickup - sum_dropoff - z_sum_dropoff == fi_r[r, i],
+            #                 name=(
+            #                     f"∑_j y[{r},i,j] + ∑_j z[i,j] - ∑_j y[{r},j,i] - ∑_j z[j,i] "
+            #                     f"= fi_r[{r},{i}]  ∀i∈Cr[{r}]"
+            #                 )
+            #             )
+
             # (2') Passenger balance for transfer nodes (without timetabled departures)
             if Cr:
                 for r in R:
-                    for i in Cr[r]:
+                    for i in C:
                         sum_pickup  = gb.quicksum(y[r, i, j] for j in N if (i, j) in A)
                         sum_dropoff = gb.quicksum(y[r, j, i] for j in N if (j, i) in A)
 

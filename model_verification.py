@@ -46,10 +46,7 @@ def write_model_verification_report(m, file_path="model_verification.txt"):
                 slack = constr.Slack
                 f.write(
                     "===================================================\n"
-                    "===================================================\n"
                     f"{constr.ConstrName}:\n"
-                    "===================================================\n"
-                    "===================================================\n"
                     f"LHS = {m.getRow(constr)} "
                     f"→ Value = {m.getRow(constr).getValue():.6f}, "
                     f"Sense = {constr.Sense}, "

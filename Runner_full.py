@@ -18,6 +18,10 @@ class DARPExperimentRunner:
         self.results = []
         self.skipped = []
 
+    def base(self, i):
+        return i[0] if isinstance(i, tuple) else i
+
+
     def stop_when_optimal(self, model, where):
         """Stop solver when objective 880 is found, and record time."""
         if where == gb.GRB.Callback.MIPSOL:
@@ -79,6 +83,11 @@ class DARPExperimentRunner:
                 variable_substitution=bool_params['variable_substitution']
             )
 
+            m.Params.Presolve = 0
+            # Optional: reduce other presolve-like reductions
+            m.Params.Aggregate = 0
+            m.Params.PreSparsify = 0
+
             def lp_callback(m, where):
                 if where == gb.GRB.Callback.MIPNODE:
                     try:
@@ -123,12 +132,13 @@ class DARPExperimentRunner:
                         # print(f"Added user cut for cluster {cluster}")
                 # self.stop_when_optimal(m, where)
 
+
             m.optimize(lp_callback)
         else:
             # m.optimize(lambda m, where: self.stop_when_optimal(m, where))
             m.optimize()
 
-        write_model_verification_report(m = m, file_path="C:\\Users\\enzot\\Documents\\Césure\\1ère césure inria Lille\\Codes\\Stage-Inria-01-09-2025--28-02-2026\\test1.txt")
+        write_model_verification_report(m = m, file_path="C:\\Users\\enzot\\Documents\\Césure\\1ère césure inria Lille\\Codes\\Stage-Inria-01-09-2025--28-02-2026\\test1_PT_timetabled.txt")
 
         end_cpu = t.process_time()
         end_wall = t.perf_counter()
@@ -143,19 +153,21 @@ class DARPExperimentRunner:
             m.write(f"{model_name}.iis")
             raise SystemExit("Model infeasible; IIS written.")
 
-        z_values_1 = {}
-        for key, var in vars_['z'].items():
-            if abs(var.X) > 1e-6:
-                z_values_1[key] = int(var.X)
+        # z_values_1 = {}
+        # for key, var in vars_['z'].items():
+        #     if abs(var.X) > 1e-6:
+        #         z_values_1[key] = int(var.X)
 
         z_values_all = {}
         for key, var in vars_['z'].items(): 
             z_values_all[key] = int(var.X)
 
-        y_values_r4 = {}
-        for key, var in vars_['y'].items():
-            if key[0] == 4:
-                y_values_r4[key] = int(var.X)
+        for key in vars_['z'].keys(): print(key)
+
+        # y_values_r4 = {}
+        # for key, var in vars_['y'].items():
+        #     if key[0] == 4:
+        #         y_values_r4[key] = int(var.X)
 
         # a_values = {}
         # for key, var in vars_['a'].items():
@@ -175,6 +187,51 @@ class DARPExperimentRunner:
         #         debugger[f'z (4,(12,{i},11,{j})'] = sum(int(vars_['z'][d,(12,i),(11,j)].X) for d in range(70))
         #         debugger[f'z (4,(11,{j},12,{i})'] = sum(int(vars_['z'][d,(11,j),(12,i)].X) for d in range(70))
 
+        R = data_sets['R']
+        C = data_sets['C']
+        N = data_sets['N']
+        A = data_sets['A']
+        Departures = data_params['Departures']
+        
+        Constraint_val = {}
+
+        for r in R:
+            for i in C:
+                # Passenger movements
+                sum_pickup  = sum(vars_['y'][r, i, j].X for j in N if (i, j) in A and (r, i, j) in vars_['y'])
+                sum_dropoff = sum(vars_['y'][r, j, i].X for j in N if (j, i) in A and (r, j, i) in vars_['y'])
+
+                # PT transfers (z variables)
+                z_sum_pickup = 0
+                z_sum_dropoff = 0
+
+                for j in C:
+                    if (self.base(i), self.base(j)) in Departures:
+                        for d in Departures[(self.base(i), self.base(j))]:
+                            if (d, i, j) in vars_['z']:
+                                z_sum_pickup += vars_['z'][(d, i, j)].X
+
+                    if (self.base(j), self.base(i)) in Departures:
+                        for d in Departures[(self.base(j), self.base(i))]:
+                            if (d, j, i) in vars_['z']:
+                                z_sum_dropoff += vars_['z'][(d, j, i)].X
+
+                # Compute total passenger balance
+                lhs = sum_pickup + z_sum_pickup - sum_dropoff - z_sum_dropoff
+                rhs = data_params['fi_r'].get((r, i), 0)
+
+                Constraint_val[(r, i)] = {
+                    'y_out': sum_pickup,
+                    'y_in': sum_dropoff,
+                    'z_out': z_sum_pickup,
+                    'z_in': z_sum_dropoff,
+                    'lhs': lhs,
+                    'rhs': rhs,
+                    'diff': lhs - rhs
+                }
+
+
+
         # === Extract routes ===
         extractor = DARPRouteExtractor(
             m = m,
@@ -187,13 +244,13 @@ class DARPExperimentRunner:
         r1, r2, r3, r4 = extractor.extract_request_route_final()
         z1 = extractor.extract_PT_route_final()
 
-        ##### ===== Transfer Balance Debugging problem ===== #####
-        if bool_params['timetabled_departures']:
-            sum_balance = extractor.test_passenger_transfer_balance(v1, v2)
-            wrong_sum_balance = {}
-            for key, val in sum_balance.items():
-                if abs(val['diff']) > 1e-6:
-                    wrong_sum_balance[key] = val
+        # ##### ===== Transfer Balance Debugging problem ===== #####
+        # if bool_params['timetabled_departures']:
+        #     sum_balance = extractor.test_passenger_transfer_balance(v1, v2)
+        #     wrong_sum_balance = {}
+        #     for key, val in sum_balance.items():
+        #         if abs(val['diff']) > 1e-6:
+        #             wrong_sum_balance[key] = val
 
         # === Save results ===
         result = {
@@ -211,14 +268,34 @@ class DARPExperimentRunner:
             # "All DAR Arcs used": str(used_arcs),
             "CPU Time (s)": cpu_time,
             "Elapsed Time (s)": elapsed_time, 
-            # "All values of z": z_values_all,
+            "All values of z": z_values_all,
             # "z_values_1": z_values_1,
             # "All valyes of y request 4": y_values_r4, 
             # "sum_balance": wrong_sum_balance, 
             # "a_values": a_values,
+            # "Departures": data_params['Departures'],
+            # "C": data_sets['C'],
+            # "A": data_sets['A'],
+            # "Constraint_val": Constraint_val
         }
         self.results.append(result)
         print(result)
+        print("Total z variables:", len(vars_['z']))
+        for k in list(vars_['z'].keys())[:10]:
+            print(k)
+
+        count_existing = 0
+        count_missing = 0
+        for i in C:
+            for j in C:
+                if (self.base(i), self.base(j)) in Departures:
+                    for d in Departures[(self.base(i), self.base(j))]:
+                        if (d, i, j) in vars_['z']:
+                            count_existing += 1
+                        else:
+                            count_missing += 1
+        print(f"Z arcs found: {count_existing}, missing: {count_missing}")
+
         print(f"\n✅ Done: {model_name} | Obj = {m.ObjVal:.2f}, Bound = {m.ObjBound:.2f}")
         return result
 
@@ -467,14 +544,14 @@ class DARPExperimentRunner:
 if __name__ == "__main__":
     TIME_LIMIT = 2 * 60 * 60
     bool_params_singular = {
-        "duplicate_transfers": True,
+        "duplicate_transfers": False,
         "arc_elimination": True,
         "variable_substitution": True,
         "subtour_elimination": True,
         "transfer_node_strengthening": True,
         "ev_constraints": False,
-        "timetabled_departures": False,
-        "use_imjn": False,
+        "timetabled_departures": True,
+        "use_imjn": True,
         "MoPS": False
     }
 

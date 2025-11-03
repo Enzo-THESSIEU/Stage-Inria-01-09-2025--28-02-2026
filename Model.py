@@ -11,7 +11,6 @@ class DARPModelBuilder:
         self.TIME_LIMIT = TIME_LIMIT
 
         if sets is None or params is None:
-            from Parametres import DARPDataBuilder
             data_builder = DARPDataBuilder(
                 duplicate_transfers=options.get("duplicate_transfers", True),
                 arc_elimination=options.get("arc_elimination", True),
@@ -86,7 +85,6 @@ class DARPModelBuilder:
             constraint_builder.add_scheduled_PT_constraints()
 
         if use_imjn:
-            print("checking this constraint")
             constraint_builder.add_artificial_node_constraints()
 
         if MoPS:
