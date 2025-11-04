@@ -32,7 +32,7 @@ class DARPModelBuilder:
         subtour_elimination = self.options.get("subtour_elimination", True)
         transfer_node_strengthening = self.options.get("transfer_node_strengthening", True)
         ev_constraints = self.options.get("ev_constraints", False)
-        timetabled_departures = self.options.get("timetabled_Departures", False)
+        timetabled_departures = self.options.get("timetabled_departures", False)
         use_imjn = self.options.get("use_imjn", False)
         MoPS = self.options.get("MoPS", False)
         clusters = []

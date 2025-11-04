@@ -209,47 +209,6 @@ class DARPRouteExtractor:
 
         return sum_balance
 
-
-
-
-
-    
-    # def extract_PT_route_final(self):
-
-    #     nodes, N, P, D, C, F, R, K, zeroDepot_node, endDepot_node, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
-    #     z, T_node = self.vars_['z'], self.vars_["T_node"]
-
-    #     used_PT_arcs = []
-
-    #     # === PT ARCS ===
-    #     if self.timetabled_departures:
-    #         Departures = self.params.get("Departures", {})
-    #         for i in C:
-    #             for j in C:
-    #                 if (self.base(i), self.base(j)) in Departures:
-    #                     for d in Departures[self.base(i), self.base(j)]:
-    #                         print(f"Looking at arcs {i} and {j}")
-    #                         if z[d, i, j].x > 1e-6:
-    #                             print(f"z[{d},{i},{j}", z[d,i,j].x)
-    #                             used_PT_arcs.append([
-    #                                 (i, j),
-    #                                 f"Time at node {i}: {T_node[i].x:.2f}",
-    #                                 f"Time at node {j}: {T_node[j].x:.2f}"
-    #                             ])
-                    
-    #     else: 
-    #         for i in C:
-    #             for j in C:
-    #                 if (i,j) in z and z[i,j].x > 0.5:
-    #                     # print(f"z[{i},{j}", z[i,j].x)
-    #                     used_PT_arcs.append([
-    #                         (i, j),
-    #                         f"Time at node {i}: {T_node[i].x:.2f}",
-    #                         f"Time at node {j}: {T_node[j].x:.2f}"
-    #                     ])
-
-    #     return used_PT_arcs
-
     def extract_PT_route_final(self):
         """
         Extracts all used Public Transport (PT) arcs from the model.

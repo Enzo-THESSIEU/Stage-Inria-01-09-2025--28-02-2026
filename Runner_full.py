@@ -59,6 +59,9 @@ class DARPExperimentRunner:
 
         m, vars_ = model_builder.build()
 
+        z_keys = vars_['z'].keys()
+        print("number of keys :", len(z_keys))
+
         # Attach callback data
         m._v = vars_["v"]
         m._x = vars_["x"]
@@ -153,16 +156,16 @@ class DARPExperimentRunner:
             m.write(f"{model_name}.iis")
             raise SystemExit("Model infeasible; IIS written.")
 
-        # z_values_1 = {}
-        # for key, var in vars_['z'].items():
-        #     if abs(var.X) > 1e-6:
-        #         z_values_1[key] = int(var.X)
+        z_values_1 = {}
+        for key, var in vars_['z'].items():
+            if abs(var.X) > 1e-6:
+                z_values_1[key] = int(var.X)
 
         z_values_all = {}
         for key, var in vars_['z'].items(): 
             z_values_all[key] = int(var.X)
 
-        for key in vars_['z'].keys(): print(key)
+        # for key in vars_['z'].keys(): print(key)
 
         # y_values_r4 = {}
         # for key, var in vars_['y'].items():
@@ -193,42 +196,42 @@ class DARPExperimentRunner:
         A = data_sets['A']
         Departures = data_params['Departures']
         
-        Constraint_val = {}
+        # Constraint_val = {}
 
-        for r in R:
-            for i in C:
-                # Passenger movements
-                sum_pickup  = sum(vars_['y'][r, i, j].X for j in N if (i, j) in A and (r, i, j) in vars_['y'])
-                sum_dropoff = sum(vars_['y'][r, j, i].X for j in N if (j, i) in A and (r, j, i) in vars_['y'])
+        # for r in R:
+        #     for i in C:
+        #         # Passenger movements
+        #         sum_pickup  = sum(vars_['y'][r, i, j].X for j in N if (i, j) in A and (r, i, j) in vars_['y'])
+        #         sum_dropoff = sum(vars_['y'][r, j, i].X for j in N if (j, i) in A and (r, j, i) in vars_['y'])
 
-                # PT transfers (z variables)
-                z_sum_pickup = 0
-                z_sum_dropoff = 0
+        #         # PT transfers (z variables)
+        #         z_sum_pickup = 0
+        #         z_sum_dropoff = 0
 
-                for j in C:
-                    if (self.base(i), self.base(j)) in Departures:
-                        for d in Departures[(self.base(i), self.base(j))]:
-                            if (d, i, j) in vars_['z']:
-                                z_sum_pickup += vars_['z'][(d, i, j)].X
+        #         for j in C:
+        #             if (self.base(i), self.base(j)) in Departures:
+        #                 for d in Departures[(self.base(i), self.base(j))]:
+        #                     if (d, i, j) in vars_['z']:
+        #                         z_sum_pickup += vars_['z'][(d, i, j)].X
 
-                    if (self.base(j), self.base(i)) in Departures:
-                        for d in Departures[(self.base(j), self.base(i))]:
-                            if (d, j, i) in vars_['z']:
-                                z_sum_dropoff += vars_['z'][(d, j, i)].X
+        #             if (self.base(j), self.base(i)) in Departures:
+        #                 for d in Departures[(self.base(j), self.base(i))]:
+        #                     if (d, j, i) in vars_['z']:
+        #                         z_sum_dropoff += vars_['z'][(d, j, i)].X
 
-                # Compute total passenger balance
-                lhs = sum_pickup + z_sum_pickup - sum_dropoff - z_sum_dropoff
-                rhs = data_params['fi_r'].get((r, i), 0)
+        #         # Compute total passenger balance
+        #         lhs = sum_pickup + z_sum_pickup - sum_dropoff - z_sum_dropoff
+        #         rhs = data_params['fi_r'].get((r, i), 0)
 
-                Constraint_val[(r, i)] = {
-                    'y_out': sum_pickup,
-                    'y_in': sum_dropoff,
-                    'z_out': z_sum_pickup,
-                    'z_in': z_sum_dropoff,
-                    'lhs': lhs,
-                    'rhs': rhs,
-                    'diff': lhs - rhs
-                }
+        #         Constraint_val[(r, i)] = {
+        #             'y_out': sum_pickup,
+        #             'y_in': sum_dropoff,
+        #             'z_out': z_sum_pickup,
+        #             'z_in': z_sum_dropoff,
+        #             'lhs': lhs,
+        #             'rhs': rhs,
+        #             'diff': lhs - rhs
+        #         }
 
 
 
@@ -264,12 +267,12 @@ class DARPExperimentRunner:
             "Request 2 Route": str(r2),
             "Request 3 Route": str(r3),
             "Request 4 Route": str(r4),
-            # "PT Arcs used": str(z1),
+            "PT Arcs used": str(z1),
             # "All DAR Arcs used": str(used_arcs),
             "CPU Time (s)": cpu_time,
             "Elapsed Time (s)": elapsed_time, 
-            "All values of z": z_values_all,
-            # "z_values_1": z_values_1,
+            # "All values of z": z_values_all,
+            "z_values_1": z_values_1,
             # "All valyes of y request 4": y_values_r4, 
             # "sum_balance": wrong_sum_balance, 
             # "a_values": a_values,

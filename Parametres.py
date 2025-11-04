@@ -3,7 +3,7 @@ import numpy as np
 
 class DARPDataBuilder:
     def __init__(self, duplicate_transfers=True, arc_elimination=True,
-                 ev_constraints=False, use_imjn=False, MoPS = False, max_visits_transfer=5):
+                 ev_constraints=False, use_imjn=False, MoPS = False, max_visits_transfer=3):
         self.duplicate_transfers = duplicate_transfers
         self.arc_elimination = arc_elimination
         self.ev_constraints = ev_constraints
@@ -283,7 +283,7 @@ class DARPDataBuilder:
                 fi_r[r, d] = -1
         return fi_r
 
-    def build_departures(self, t, C_minor, interval=20, planning_horizon=24*60):    ##### Modify again ######
+    def build_departures(self, t, C_minor, interval=30, planning_horizon=24*30):    ##### Modify again ######
         """
         Build Departures dictionary with forward and backward arcs (including skip arcs).
 
@@ -304,7 +304,7 @@ class DARPDataBuilder:
         left_terminal = transfer_nodes[0]
         for j in range(1, len(transfer_nodes)):
             Departures[(left_terminal, transfer_nodes[j])] = {
-                a: 150 + interval * a for a in range(int(n_intervals))
+                a: 650 + interval * a for a in range(int(n_intervals))
             }
 
         # Forward arcs (including skips)
@@ -319,7 +319,7 @@ class DARPDataBuilder:
         right_terminal = transfer_nodes[-1]
         for j in range(len(transfer_nodes)-1):
             Departures[(right_terminal, transfer_nodes[j])] = {
-                a: 150 + interval * a for a in range(int(n_intervals))
+                a: 650 + interval * a for a in range(int(n_intervals))
             }
 
         # Backward arcs (including skips)
@@ -482,6 +482,23 @@ class DARPDataBuilder:
             ], dtype=object)
 
         else:
+            # t = np.array([
+            #     [  0,  23, 173, 131, 195, 170, 129, 160, 153,   0, 120,  21, 163],
+            #     [ 23,   0, 166, 123, 173, 179, 125, 138, 168,  23, 135,  26, 159],
+            #     [173, 166,   0,  57, 289,  41, 268, 254,  79, 173,  57, 191, 301],
+            #     [131, 123,  57,   0, 258,  72, 236, 222,  60, 131,  29, 148, 270],
+            #     [195, 173, 289, 258,   0, 318,  73,  35, 306, 195, 273, 174,  39],
+            #     [170, 179,  41,  72, 318,   0, 296, 282,  53, 170,  51, 191, 329],
+            #     [129, 125, 268, 236,  73, 296,   0,  48, 282, 129, 248, 108,  34],
+            #     [160, 138, 254, 222,  35, 282,  48,   0, 271, 160, 237, 139,  57],
+            #     [153, 168,  79,  60, 306,  53, 282, 271,   0, 153,  35, 174, 316],
+            #     [  0,  23, 173, 131, 195, 170, 129, 160, 153,   0, 120,  21, 163],
+            #     [120, 135,  57,  29, 273,  51, 248, 237,  35, 120,   0, 141, 283],
+            #     [ 21,  26, 191, 148, 174, 191, 108, 139, 174,  21, 141,   0, 142],
+            #     [163, 159, 301, 270,  39, 329,  34,  57, 316, 163, 283, 142,   0]
+            # ], dtype=float)
+
+            ### === Modified t to favorise the use of PT (foir verification of model) === ###
             t = np.array([
                 [  0,  23, 173, 131, 195, 170, 129, 160, 153,   0, 120,  21, 163],
                 [ 23,   0, 166, 123, 173, 179, 125, 138, 168,  23, 135,  26, 159],
@@ -493,9 +510,9 @@ class DARPDataBuilder:
                 [160, 138, 254, 222,  35, 282,  48,   0, 271, 160, 237, 139,  57],
                 [153, 168,  79,  60, 306,  53, 282, 271,   0, 153,  35, 174, 316],
                 [  0,  23, 173, 131, 195, 170, 129, 160, 153,   0, 120,  21, 163],
-                [120, 135,  57,  29, 273,  51, 248, 237,  35, 120,   0, 141, 283],
-                [ 21,  26, 191, 148, 174, 191, 108, 139, 174,  21, 141,   0, 142],
-                [163, 159, 301, 270,  39, 329,  34,  57, 316, 163, 283, 142,   0]
+                [120, 135,  57,  29, 273,  51, 248, 237,  35, 120,   0, 1, 1],
+                [ 21,  26, 191, 148, 174, 191, 108, 139, 174,  21, 1,   0, 1],
+                [163, 159, 301, 270,  39, 329,  34,  57, 316, 163, 1, 1,   0]
             ], dtype=float)
 
             nodes = np.array([
@@ -605,11 +622,11 @@ class DARPDataBuilder:
     
 if __name__ == "__main__":
     builder = DARPDataBuilder(
-        duplicate_transfers=True,
+        duplicate_transfers=False,
         arc_elimination=True,
         ev_constraints=False,
-        use_imjn=False,
-        MoPS=True
+        use_imjn=True,
+        MoPS=False
     )
     sets, params = builder.build()
     print("✅ Build complete.")
@@ -621,6 +638,9 @@ if __name__ == "__main__":
     # print("tij: ", params['tij'])
     print("ei:", params['ei'])
     print("li:", params['li'])
-    print("Example C:", list(sets['C'])[:5])
+    print("C", sets['C'])
+    print("A", sets['A'])
+    print("N", sets['N'])
+    print("Departures", params['Departures'])
 
 
