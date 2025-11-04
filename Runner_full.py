@@ -172,9 +172,9 @@ class DARPExperimentRunner:
         #     if key[0] == 4:
         #         y_values_r4[key] = int(var.X)
 
-        # a_values = {}
-        # for key, var in vars_['a'].items():
-        #     a_values[key] = int(var.X)
+        a_values = {}
+        for key, var in vars_['a'].items():
+            a_values[key] = int(var.X)
 
         # debugger = {}
         # debugger["fi_r (4, (4,1))"] = data_params['fi_r'][4, (4,1)]
@@ -275,7 +275,7 @@ class DARPExperimentRunner:
             "z_values_1": z_values_1,
             # "All valyes of y request 4": y_values_r4, 
             # "sum_balance": wrong_sum_balance, 
-            # "a_values": a_values,
+            "a_values": a_values,
             # "Departures": data_params['Departures'],
             # "C": data_sets['C'],
             # "A": data_sets['A'],

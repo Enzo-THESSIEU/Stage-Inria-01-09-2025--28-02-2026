@@ -194,17 +194,75 @@ class initial_solution:
             del preliminary_clusters[link[1]]
         return preliminary_clusters
     
-    def build_cluster_solution(self, clusters):
-        clusters_by_transfer = self.define_PT_preliminary_clusters()
-        for cluster_key, cluster in clusters_by_transfer.items():
-            pickup_cluster = []
-            dropoff_cluster = []
-            for node in cluster:
-                if node in self.sets['P']:
-                    pickup_cluster.append(node)
-                else:
-                    dropoff_cluster.append(node)
-            clusters_by_transfer[cluster_key] = [pickup_cluster, dropoff_cluster]
+    def find_nearest_transfer(self, node):
+        C = self.sets["C"]
+        # Assuming you have a cost/distance matrix `cij`
+        return min(C, key=lambda t: self.params["tij"][node, t])
+    
+    def determine_opposite_node(self, node):
+        pair_pi_di = self.params['pair_pi_di']
+        P = self.sets['P']
+        D = self.sets['D']
+        if node in P:
+            pickup_node = node
+            dropoff_node = pair_pi_di[pickup_node]
+        elif node in D:
+            dropoff_node = node
+            pickup_node = next(k for k, v in pair_pi_di.items() if v == dropoff_node)
+        return pickup_node, dropoff_node
+    
+    def link_pickup_transfer_and_dropoff_transfer(self,node):
+        preliminary_clusters = self.define_PT_preliminary_clusters()
+        pickup_node, dropoff_node = self.determine_opposite_node(node)
+
+        transfer_node_for_pickup_node = next(k for k, v in preliminary_clusters.items() if pickup_node in v)
+        transfer_node_for_dropoff_node = next(k for k, v in preliminary_clusters.items() if dropoff_node in v)
+        return transfer_node_for_pickup_node, transfer_node_for_dropoff_node
+    
+    def build_subproblem_for_each_cluster(self, cluster):
+        pickup_nodes_for_cluster = []
+        dropoff_nodes_for_cluster = []
+        P = self.sets['P']
+        D = self.sets['D']
+        pair_pi_di = self.params['pair_pi_di']
+        tij = self.params['tij']
+        ei = self.params['ei']
+        li = self.params['li']
+        ei_cluster = []
+        li_cluster = []
+        for node in cluster:
+            if node in P:
+                pickup_node, dropoff_node = self.determine_opposite_node(node)
+                transfer_node_for_pickup_node, transfer_node_for_dropoff_node = self.link_pickup_transfer_and_dropoff_transfer(node)
+                pickup_nodes_for_cluster.append(node)
+                dropoff_nodes_for_cluster.append(transfer_node_for_pickup_node)
+                ei_cluster.append(ei[self.base(node)])
+                li_cluster.append(li[self.base(dropoff_node)] - 
+                                  tij[self.base(node), self.base(transfer_node_for_pickup_node)] - 
+                                  tij[self.base(transfer_node_for_pickup_node), self.base(transfer_node_for_dropoff_node)] - 
+                                  tij[self.base(transfer_node_for_dropoff_node), self.base(dropoff_node)])
+            elif node in D:
+                pickup_node, dropoff_node = self.determine_opposite_node(node)
+                transfer_node_for_pickup_node, transfer_node_for_dropoff_node = self.link_pickup_transfer_and_dropoff_transfer(node)
+                pickup_nodes_for_cluster.append(transfer_node_for_dropoff_node)
+                dropoff_nodes_for_cluster.append(node)
+                ei_cluster.append(ei[self.base(pickup_node)] + 
+                                  tij[self.base(pickup_node), self.base(transfer_node_for_pickup_node)] + 
+                                  tij[self.base(transfer_node_for_pickup_node), self.base(transfer_node_for_dropoff_node)])
+                li_cluster.append(li[self.base(dropoff_node)] -  
+                                  tij[self.base(transfer_node_for_dropoff_node), self.base(dropoff_node)])
+        subproblem = np.array(transfer_node_for_pickup_node)   
+        # Build array of arrays where the format is 
+        # subproblem = [... [pickup node for subproblem, dropoff node for subproblem, ei time constraint for pickup node, id for subrequest] ...]
+        for req_idx in range(transfer_node_for_pickup_node):
+            subproblem[req_idx] = np.array(pickup_nodes_for_cluster[req_idx], dropoff_nodes_for_cluster[req_idx], ei_cluster[req_idx], req_idx)
+
+
+
+        
+
+
+
         
             
 

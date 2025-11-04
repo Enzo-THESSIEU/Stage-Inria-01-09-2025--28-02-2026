@@ -781,7 +781,7 @@ class DARPConstraintBuilder:
     def add_artificial_node_constraints(self):
         nodes, N, P, D, C, F, R, K, P_M, D_M, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets['P_M'], self.sets['D_M'], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
         M = self.params['M']
-        v, z, a, T_node = self.vars_['v'], self.vars_["z"], self.vars_["a"], self.vars_['T_node']
+        x, v, z, a, T_node = self.vars_['x'], self.vars_['v'], self.vars_["z"], self.vars_["a"], self.vars_['T_node']
         for (i, m_) in N:
             if m_ < max(n for (j, n) in N if j == i):
                 # (1) Monotonic activation of layers/modes
@@ -790,16 +790,15 @@ class DARPConstraintBuilder:
                     name=f"a[{i},{m_}] - a[{i},{m_+1}] ≥ 0  [Monotonic_activation_i={i}]"
                 )
 
-                # (2) Non-decreasing service time across layers/modes
-                self.m.addConstr(
-                    T_node[i, m_ + 1] - T_node[i, m_] >= 0,
-                    name=f"T[{i},{m_+1}] - T[{i},{m_}] ≥ 0  [Monotonic_time_i={i}]"
-        )
  # + M * (2 - a[i,m_] - a[i,m_+1]) <= 0, name = "Time Logic for artificial nodes")
 
         # for j in N:
         #     if self.variable_substitution:
         #         self.m.addConstr(a[j] - gb.quicksum(v[i,j] for i in N if (i,j) in A) == 0 , name = "link a_im to v_ij")
+
+        #     else:
+        #         self.m.addConstr(a[j] - gb.quicksum(x[k, i,j] for k in K for i in N if (i,j) in A) == 0 , name = "link a_im to v_ij")
+
 
     def add_MoPS_constraints(self):
         nodes, N, P, D, C, F, R, K, P_M, D_M, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets['P_M'], self.sets['D_M'], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
