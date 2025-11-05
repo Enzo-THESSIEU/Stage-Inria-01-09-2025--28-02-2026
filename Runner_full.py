@@ -8,7 +8,8 @@ import pandas as pd
 from Model import DARPModelBuilder
 from routes_2 import DARPRouteExtractor
 from Parametres import DARPDataBuilder
-from Cluster_Heuristic import DARPHeuristic  # assuming you renamed Cluster_Heuristic to this
+from Cluster_Heuristic import DARPHeuristic 
+from Debugger_code import DARPDebuggingFunctions
 from model_verification import write_model_verification_report
 
 class DARPExperimentRunner:
@@ -141,7 +142,7 @@ class DARPExperimentRunner:
             # m.optimize(lambda m, where: self.stop_when_optimal(m, where))
             m.optimize()
 
-        write_model_verification_report(m = m, file_path="C:\\Users\\enzot\\Documents\\Césure\\1ère césure inria Lille\\Codes\\Stage-Inria-01-09-2025--28-02-2026\\test1_PT_timetabled.txt")
+        write_model_verification_report(m = m, file_path="C:\\Users\\enzot\\Documents\\Césure\\1ère césure inria Lille\\Codes\\Stage-Inria-01-09-2025--28-02-2026\\test1__node_strength.txt")
 
         end_cpu = t.process_time()
         end_wall = t.perf_counter()
@@ -156,85 +157,6 @@ class DARPExperimentRunner:
             m.write(f"{model_name}.iis")
             raise SystemExit("Model infeasible; IIS written.")
 
-        z_values_1 = {}
-        for key, var in vars_['z'].items():
-            if abs(var.X) > 1e-6:
-                z_values_1[key] = int(var.X)
-
-        z_values_all = {}
-        for key, var in vars_['z'].items(): 
-            z_values_all[key] = int(var.X)
-
-        # for key in vars_['z'].keys(): print(key)
-
-        # y_values_r4 = {}
-        # for key, var in vars_['y'].items():
-        #     if key[0] == 4:
-        #         y_values_r4[key] = int(var.X)
-
-        a_values = {}
-        for key, var in vars_['a'].items():
-            a_values[key] = int(var.X)
-
-        # debugger = {}
-        # debugger["fi_r (4, (4,1))"] = data_params['fi_r'][4, (4,1)]
-        # for i in range(11,13):
-        #     for j in range(1,3):
-        #         debugger[f"fi_r (4, ({i},{j}))"] = data_params['fi_r'][4, (i,j)]
-        # for j in range(1,3):
-        #     debugger[f'y (4,(4,1),(12,{j})'] = int(vars_['y'][4,(4,1),(12,j)].X)
-        #     debugger[f'y (4,(12,{j}),(4,1)'] = int(vars_['y'][4,(12,j),(4,1)].X)
-        #     debugger[f'y (4,(11,{j}),(1,1)'] = int(vars_['y'][4,(11,j),(1,1)].X)
-        #     debugger[f'y (4,(1,1),(11,{j})'] = int(vars_['y'][4,(1,1),(11,j)].X)
-        #     for i in range(1,3):
-        #         debugger[f'z (4,(12,{i},11,{j})'] = sum(int(vars_['z'][d,(12,i),(11,j)].X) for d in range(70))
-        #         debugger[f'z (4,(11,{j},12,{i})'] = sum(int(vars_['z'][d,(11,j),(12,i)].X) for d in range(70))
-
-        R = data_sets['R']
-        C = data_sets['C']
-        N = data_sets['N']
-        A = data_sets['A']
-        Departures = data_params['Departures']
-        
-        # Constraint_val = {}
-
-        # for r in R:
-        #     for i in C:
-        #         # Passenger movements
-        #         sum_pickup  = sum(vars_['y'][r, i, j].X for j in N if (i, j) in A and (r, i, j) in vars_['y'])
-        #         sum_dropoff = sum(vars_['y'][r, j, i].X for j in N if (j, i) in A and (r, j, i) in vars_['y'])
-
-        #         # PT transfers (z variables)
-        #         z_sum_pickup = 0
-        #         z_sum_dropoff = 0
-
-        #         for j in C:
-        #             if (self.base(i), self.base(j)) in Departures:
-        #                 for d in Departures[(self.base(i), self.base(j))]:
-        #                     if (d, i, j) in vars_['z']:
-        #                         z_sum_pickup += vars_['z'][(d, i, j)].X
-
-        #             if (self.base(j), self.base(i)) in Departures:
-        #                 for d in Departures[(self.base(j), self.base(i))]:
-        #                     if (d, j, i) in vars_['z']:
-        #                         z_sum_dropoff += vars_['z'][(d, j, i)].X
-
-        #         # Compute total passenger balance
-        #         lhs = sum_pickup + z_sum_pickup - sum_dropoff - z_sum_dropoff
-        #         rhs = data_params['fi_r'].get((r, i), 0)
-
-        #         Constraint_val[(r, i)] = {
-        #             'y_out': sum_pickup,
-        #             'y_in': sum_dropoff,
-        #             'z_out': z_sum_pickup,
-        #             'z_in': z_sum_dropoff,
-        #             'lhs': lhs,
-        #             'rhs': rhs,
-        #             'diff': lhs - rhs
-        #         }
-
-
-
         # === Extract routes ===
         extractor = DARPRouteExtractor(
             m = m,
@@ -242,20 +164,27 @@ class DARPExperimentRunner:
             sets = data_sets,
             params = data_params,
             options = bool_params
-            )
-        v1 , v2, used_arcs = extractor.extract_vehicle_route_final()
+        )
+        v1, v2, used_arcs = extractor.extract_vehicle_route_final()
         r1, r2, r3, r4 = extractor.extract_request_route_final()
         z1 = extractor.extract_PT_route_final()
 
-        # ##### ===== Transfer Balance Debugging problem ===== #####
-        # if bool_params['timetabled_departures']:
-        #     sum_balance = extractor.test_passenger_transfer_balance(v1, v2)
-        #     wrong_sum_balance = {}
-        #     for key, val in sum_balance.items():
-        #         if abs(val['diff']) > 1e-6:
-        #             wrong_sum_balance[key] = val
+        # === Debugging tools ===
+        debugger = DARPDebuggingFunctions(m, vars_, data_sets, data_params)
 
-        # === Save results ===
+        # 1️⃣ Extract variable values
+        z_all, z_nonzero, y_r4, a_values, v_values_1, sum_v = debugger.extract_variable_values()
+
+        # 2️⃣ Check passenger transfer balance
+        wrong_sum_balance = debugger.check_transfer_balance(extractor)
+
+        # 3️⃣ Compute constraint balance
+        Constraint_val = debugger.compute_constraint_balance()
+
+        # 4️⃣ Print and log Z-variable summary
+        debugger.print_z_variable_summary(model_name)
+
+        # === Save main experiment results ===
         result = {
             "Model": model_name,
             **bool_params,
@@ -268,39 +197,30 @@ class DARPExperimentRunner:
             "Request 3 Route": str(r3),
             "Request 4 Route": str(r4),
             "PT Arcs used": str(z1),
-            # "All DAR Arcs used": str(used_arcs),
+            "All DAR Arcs used": str(used_arcs),
             "CPU Time (s)": cpu_time,
-            "Elapsed Time (s)": elapsed_time, 
-            # "All values of z": z_values_all,
-            "z_values_1": z_values_1,
-            # "All valyes of y request 4": y_values_r4, 
-            # "sum_balance": wrong_sum_balance, 
-            "a_values": a_values,
-            # "Departures": data_params['Departures'],
-            # "C": data_sets['C'],
-            # "A": data_sets['A'],
-            # "Constraint_val": Constraint_val
+            "Elapsed Time (s)": elapsed_time
         }
+
+        # === Separate debugging data ===
+        debugging_data = {
+            "All values of z": z_all,
+            "z_values_1": z_nonzero,
+            "v_values_1": v_values_1,
+            "sum obj function": sum_v,
+            "All values of y (req 4)": y_r4,
+            "sum_balance": wrong_sum_balance,
+            "a_values": a_values,
+            "Constraint_val": Constraint_val
+        }
+
+        # === Store both ===
         self.results.append(result)
+        self.debugging_data = debugging_data  # or append to a list if you run multiple models
+
         print(result)
-        print("Total z variables:", len(vars_['z']))
-        for k in list(vars_['z'].keys())[:10]:
-            print(k)
+        return result, debugging_data
 
-        count_existing = 0
-        count_missing = 0
-        for i in C:
-            for j in C:
-                if (self.base(i), self.base(j)) in Departures:
-                    for d in Departures[(self.base(i), self.base(j))]:
-                        if (d, i, j) in vars_['z']:
-                            count_existing += 1
-                        else:
-                            count_missing += 1
-        print(f"Z arcs found: {count_existing}, missing: {count_missing}")
-
-        print(f"\n✅ Done: {model_name} | Obj = {m.ObjVal:.2f}, Bound = {m.ObjBound:.2f}")
-        return result
 
     # === MULTIPLE MODEL RUN ===
     def run_all_combinations(self):
@@ -308,12 +228,9 @@ class DARPExperimentRunner:
         boolean_params = {
             'roaund': [True, False],
             'robund': [True, False],
-            # 'duplicate_transfers': [True, False],
             'arc_elimination': [True, False],
             'variable_substitution': [True, False],
             'subtour_elimination': [True, False],
-            # 'timetabled_departures': [True, False],
-            # 'use_imjn': [True, False],
         }                 
 
         all_combos = list(itertools.product(*boolean_params.values()))
@@ -323,6 +240,9 @@ class DARPExperimentRunner:
         pbar = tqdm(total=total, desc="Progress", unit="config", ncols=100)
         start_global = t.perf_counter()
 
+        # store all debugging data separately
+        self.debugging_data_all = []
+
         for idx, combo in enumerate(all_combos, start=1):
             params = dict(zip(boolean_params.keys(), combo))
             model_name = "IDARP_Model_" + "_".join([f"{k[:3]}{int(v)}" for k, v in params.items()])
@@ -330,9 +250,9 @@ class DARPExperimentRunner:
             # Default modifiers
             params['ev_constraints'] = False
             params['transfer_node_strengthening'] = True
-            params['timetabled_departures']= False
-            params['use_imjn']= False
-            params['duplicate_transfers']= True
+            params['timetabled_departures'] = False
+            params['use_imjn'] = False
+            params['duplicate_transfers'] = True
 
             # Feasibility filters
             skip_reason = self.check_invalid_combo(params)
@@ -351,7 +271,6 @@ class DARPExperimentRunner:
             )
             data_sets, data_params = data_builder.build()
 
-
             model_builder = DARPModelBuilder(
                 model_name=model_name,
                 TIME_LIMIT=self.time_limit,
@@ -362,7 +281,7 @@ class DARPExperimentRunner:
             m, vars_ = model_builder.build()
 
             heuristic = DARPHeuristic(m, vars_, data_sets, data_params,
-                                      variable_substitution=params["variable_substitution"])
+                                    variable_substitution=params["variable_substitution"])
 
             # Attach callback data
             m._v = vars_["v"]
@@ -374,24 +293,13 @@ class DARPExperimentRunner:
             m._A = data_sets["A"]
             m.Params.LazyConstraints = 1
 
-            # # === Solve ===
-            # start_wall = t.perf_counter()
-            # if params['subtour_elimination']:
-            #     m.optimize(heuristic.subtour_callback)
-            # else:
-            #     m.optimize()
-            # end_wall = t.perf_counter()
-            # elapsed_time = end_wall - start_wall
-
             # === Optimization ===
             start_cpu = t.process_time()
             start_wall = t.perf_counter()
 
-            m._start_time = start_wall      # start reference for callback
-            m._t_optimal = None             # initialize storage variable
+            m._start_time = start_wall
+            m._t_optimal = None
 
-            # --- Run with subtour elimination or not ---
-            # --- Run with subtour elimination or not ---
             if params['subtour_elimination']:
                 heuristic = DARPHeuristic(
                     m, vars_, data_sets, data_params,
@@ -401,42 +309,24 @@ class DARPExperimentRunner:
                 def lp_callback(m, where):
                     if where == gb.GRB.Callback.MIPNODE:
                         try:
-                            val = m.cbGetNodeRel(m._x[0,0,9])
+                            val = m.cbGetNodeRel(m._x[0, 0, 9])
                         except gb.GurobiError:
-                            return  # skip cluster update for this iteration
-
+                            return
                         clusters = heuristic.cluster_builder(max_weight=1.0)
-
-                        # access sets and variables
-                        A = heuristic.sets["A"]
-                        N = heuristic.sets["N"]
-                        K = heuristic.sets["K"]
-                        v = heuristic.vars_["v"]
-                        x = heuristic.vars_["x"]
-
+                        A, N, K = heuristic.sets["A"], heuristic.sets["N"], heuristic.sets["K"]
+                        v, x = heuristic.vars_["v"], heuristic.vars_["x"]
                         for cluster in clusters:
                             if len(cluster) <= 1:
-                                continue  # skip singletons
-
+                                continue
                             if heuristic.variable_substitution:
-                                expr = gb.quicksum(
-                                    v[i, j]
-                                    for i in cluster
-                                    for j in N
-                                    if j not in cluster and (i, j) in A
-                                )
+                                expr = gb.quicksum(v[i, j]
+                                                for i in cluster for j in N
+                                                if j not in cluster and (i, j) in A)
                             else:
-                                expr = gb.quicksum(
-                                    x[k, i, j]
-                                    for k in K
-                                    for i in cluster
-                                    for j in N
-                                    if j not in cluster and (i, j) in A
-                                )
-
-                            # === ADD CUT to current LP relaxation ===
+                                expr = gb.quicksum(x[k, i, j]
+                                                for k in K for i in cluster for j in N
+                                                if j not in cluster and (i, j) in A)
                             m.cbCut(expr >= 1)
-                            # print(f"Added user cut for cluster {cluster}")
                     self.stop_when_optimal(m, where)
 
                 m.optimize(lp_callback)
@@ -448,11 +338,58 @@ class DARPExperimentRunner:
             cpu_time = end_cpu - start_cpu
             elapsed_time = end_wall - start_wall
 
-            # === Record ===
-            result = self._record_result(m, params, data_sets, vars_, elapsed_time)
-            self.results.append(result)
+            # === Handle results ===
+            if m.status == gb.GRB.INFEASIBLE or m.SolCount == 0:
+                result = self._record_result(m, params, data_sets, vars_, elapsed_time)
+                self.results.append(result)
+                self.debugging_data_all.append({})
+            else:
+                # --- Normal feasible case ---
+                extractor = DARPRouteExtractor(
+                    m=m, vars_=vars_, sets=data_sets, params=data_params, options=params
+                )
+                v1, v2, used_arcs = extractor.extract_vehicle_route_final()
+                r1, r2, r3, r4 = extractor.extract_request_route_final()
+                z1 = extractor.extract_PT_route_final()
 
-            # Update progress
+                debugger = DARPDebuggingFunctions(m, vars_, data_sets, data_params)
+                z_all, z_nonzero, y_r4, a_values, v_values_1, sum_v = debugger.extract_variable_values()
+                wrong_sum_balance = debugger.check_transfer_balance(extractor)
+                Constraint_val = debugger.compute_constraint_balance()
+                debugger.print_z_variable_summary(model_name)
+
+                result = {
+                    "Model": model_name,
+                    **params,
+                    "Objective": m.ObjVal,
+                    "Lower Bound": m.ObjBound,
+                    "Vehicle 1 Route": str(v1),
+                    "Vehicle 2 Route": str(v2),
+                    "Request 1 Route": str(r1),
+                    "Request 2 Route": str(r2),
+                    "Request 3 Route": str(r3),
+                    "Request 4 Route": str(r4),
+                    "PT Arcs used": str(z1),
+                    "All DAR Arcs used": str(used_arcs),
+                    "CPU Time (s)": cpu_time,
+                    "Elapsed Time (s)": elapsed_time
+                }
+
+                debugging_data = {
+                    "All values of z": z_all,
+                    "z_values_1": z_nonzero,
+                    "v_values_1": v_values_1,
+                    "sum obj function": sum_v,
+                    "All values of y (req 4)": y_r4,
+                    "sum_balance": wrong_sum_balance,
+                    "a_values": a_values,
+                    "Constraint_val": Constraint_val
+                }
+
+                self.results.append(result)
+                self.debugging_data_all.append(debugging_data)
+
+            # === Progress update ===
             avg_time = (t.perf_counter() - start_global) / idx
             remaining = avg_time * (total - idx)
             eta_min, eta_sec = divmod(int(remaining), 60)

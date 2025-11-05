@@ -32,7 +32,7 @@ class DARPConstraintBuilder:
         """
 
         nodes, N, P, D, C, F, R, K, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
-
+        Cr = self.params['Cr']
         Departures = self.params.get("Departures", None)
 
         ### --- Original variables ---
@@ -74,9 +74,10 @@ class DARPConstraintBuilder:
 
         elif C:  
             # Transfer Original Modeling
-            for i in C:
-                for j in C:
-                    z[(i, j)] = self.m.addVar(vtype=gb.GRB.BINARY, name=f"z[{i},{j}]")
+            for r in R:
+                for i in Cr[r]:
+                    for j in Cr[r]:
+                        z[(i, j)] = self.m.addVar(vtype=gb.GRB.BINARY, name=f"z[{i},{j}]")
 
         # EV-specific variables
         if self.ev_constraints:
@@ -304,7 +305,7 @@ class DARPConstraintBuilder:
             # (1') Passenger balance for non-transfer nodes
             for r in R:
                 for i in N:
-                    if i not in C:
+                    if i not in Cr[r]:
                         sum_pickup  = gb.quicksum(y[r, i, j] for j in N if (i, j) in A)
                         sum_dropoff = gb.quicksum(y[r, j, i] for j in N if (j, i) in A)
                         self.m.addConstr(
@@ -315,7 +316,7 @@ class DARPConstraintBuilder:
             # (2') Passenger balance for transfer nodes (without timetabled departures)
             if Cr:
                 for r in R:
-                    for i in C:
+                    for i in Cr[r]:
                         sum_pickup  = gb.quicksum(y[r, i, j] for j in N if (i, j) in A)
                         sum_dropoff = gb.quicksum(y[r, j, i] for j in N if (j, i) in A)
 
@@ -854,39 +855,41 @@ class DARPConstraintBuilder:
             # -------------------------------
 
             # Vehicle 1
-            vehicle1_arcs = [
-                ((0, 1), (1, 1)),
-                ((1, 1), (3, 1)),
-                ((3, 1), (2, 1)),
-                ((2, 1), (5, 1)),
-                ((5, 1), (10, 1)),
-                ((10, 1), (8, 1)),
-                ((8, 1), (9, 1)),
-            ]
+            vehicle1_arcs = []
+            # vehicle1_arcs = [
+            #     ((0, 1), (1, 1)),
+            #     ((1, 1), (3, 1)),
+            #     ((3, 1), (2, 1)),
+            #     ((2, 1), (5, 1)),
+            #     ((5, 1), (10, 1)),
+            #     ((10, 1), (8, 1)),
+            #     ((8, 1), (9, 1)),
+            # ]
 
             # Vehicle 2
             vehicle2_arcs = [
-                ((0, 1), (11, 1)),
-                ((11, 1), (7, 1)),
-                ((7, 1), (4, 1)),
-                ((4, 1), (6, 1)),
+                # ((0, 1), (11, 1)),
+                # ((11, 1), (7, 1)),
+                # ((7, 1), (4, 1)),
+                # ((4, 1), (6, 1)),
                 ((6, 1), (11, 2)),
                 ((11, 2), (9, 1)),
             ]
 
-            # Requests
-            request_arcs = {
-                1: [((1, 1), (3, 1)), ((3, 1), (2, 1)), ((2, 1), (5, 1))],
-                2: [((2, 1), (5, 1)), ((5, 1), (10, 1)), ((11, 1), (7, 1)), ((7, 1), (4, 1)), ((4, 1), (6, 1))],
-                3: [((3, 1), (2, 1)), ((2, 1), (5, 1)), ((5, 1), (10, 1)), ((11, 1), (7, 1))],
-                4: [((4, 1), (6, 1)), ((6, 1), (11, 2)), ((11, 2), (8, 1))],
-            }
+            # # Requests
+            request_arcs = []
+            # request_arcs = {
+            #     1: [((1, 1), (3, 1)), ((3, 1), (2, 1)), ((2, 1), (5, 1))],
+            #     2: [((2, 1), (5, 1)), ((5, 1), (10, 1)), ((11, 1), (7, 1)), ((7, 1), (4, 1)), ((4, 1), (6, 1))],
+            #     3: [((3, 1), (2, 1)), ((2, 1), (5, 1)), ((5, 1), (10, 1)), ((11, 1), (7, 1))],
+            #     4: [((4, 1), (6, 1)), ((6, 1), (11, 2)), ((11, 2), (8, 1))],
+            # }
 
-            transfer_arcs = [
-                ((10, 1), (11, 1)),
-                ((11, 2), (10, 1)),
-            ]
-            # transfer_arcs = []
+            # transfer_arcs = [
+            #     ((10, 1), (11, 1)),
+            #     ((11, 2), (10, 1)),
+            # ]
+            transfer_arcs = []
 
         else:
             # -------------------------------

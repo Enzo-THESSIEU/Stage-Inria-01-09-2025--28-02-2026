@@ -230,6 +230,7 @@ class initial_solution:
         li = self.params['li']
         ei_cluster = []
         li_cluster = []
+        len_cluster = len(cluster)
         for node in cluster:
             if node in P:
                 pickup_node, dropoff_node = self.determine_opposite_node(node)
@@ -251,11 +252,79 @@ class initial_solution:
                                   tij[self.base(transfer_node_for_pickup_node), self.base(transfer_node_for_dropoff_node)])
                 li_cluster.append(li[self.base(dropoff_node)] -  
                                   tij[self.base(transfer_node_for_dropoff_node), self.base(dropoff_node)])
-        subproblem = np.array(transfer_node_for_pickup_node)   
+        subproblem = np.array(len_cluster)   
         # Build array of arrays where the format is 
         # subproblem = [... [pickup node for subproblem, dropoff node for subproblem, ei time constraint for pickup node, id for subrequest] ...]
-        for req_idx in range(transfer_node_for_pickup_node):
-            subproblem[req_idx] = np.array(pickup_nodes_for_cluster[req_idx], dropoff_nodes_for_cluster[req_idx], ei_cluster[req_idx], req_idx)
+        for sub_prob_req_idx in range(len_cluster):
+            subproblem[sub_prob_req_idx] = np.array(pickup_nodes_for_cluster[sub_prob_req_idx], dropoff_nodes_for_cluster[sub_prob_req_idx], ei_cluster[sub_prob_req_idx], sub_prob_req_idx)
+        return subproblem
+    
+    def find_closest_dropoff_node_subproblem(self, pickups_in_vehicle, route, subproblem_copy):
+        tij = self.params['tij']
+        current_location = route[-1]
+        low_dist = float('inf')
+        closest_dropoff = pickups_in_vehicle[0]
+        for pickup in pickups_in_vehicle:
+            dropoff_node = next(
+                                (item[1] for item in subproblem_copy if item[0] == pickup)
+                                )
+            if tij[self.base(current_location), self.base(dropoff_node)] < low_dist:
+                low_dist = tij[self.base(current_location), self.base(dropoff_node)]
+                closest_dropoff = dropoff_node
+        return closest_dropoff
+    
+    def calculate_capacity_vehicle(self, pickups_in_vehicle):
+        qr = self.params['qr']
+        return sum(qr[pickup] for pickup in pickups_in_vehicle)
+    
+    def build_route_subproblem(self, subproblem):
+        zeroDepot_node = self.sets['zeroDepot']
+        Q = self.params['Q']
+        qr = self.params['qr']
+        tij = self.params['tij']
+        route = [zeroDepot_node]
+        pickups_in_vehicle = []
+        subproblem_copy = subproblem.copy()
+        while len(subproblem) > 0:
+            min_idx = np.argmin([row[2] for row in subproblem])
+            next_node_list = subproblem.pop(min_idx)
+            next_pickup = next_node_list[0]
+            next_dropoff = None
+            if len(pickups_in_vehicle) > 0:
+                next_dropoff = self.find_closest_dropoff_node_subproblem(pickups_in_vehicle, route, subproblem_copy)
+            if next_dropoff == None:   ### No request inside vehicle
+                route.append(next_pickup)
+                pickups_in_vehicle.append(next_pickup)
+            elif self.calculate_capacity_vehicle + qr[next_pickup] > Q:  ### Will violate capacity constraint
+                route.append(next_dropoff)
+                subproblem.add(next_node_list)
+            elif tij[self.base(route[-1]), self.base(next_pickup)] < tij[self.base(route[-1]), self.base(next_dropoff)]:   ### pickup closer than dropoff
+                route.append(next_pickup)
+                pickups_in_vehicle.append(next_pickup)
+            else:   ### Dropoff closer than pickup
+                route.append(next_dropoff)
+                subproblem.add(next_node_list)
+        return route
+    
+    def build_routes_for_clusters(self, clusters):
+        routes = []
+        for cluster in clusters:
+            cluster_subproblem = self.build_subproblem_for_each_cluster(cluster)
+            cluster_route = self.build_route_subproblem(cluster_subproblem)
+            routes.append(cluster_route)
+        return routes
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

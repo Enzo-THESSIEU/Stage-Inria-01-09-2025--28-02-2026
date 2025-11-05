@@ -337,7 +337,8 @@ class DARPDataBuilder:
     def build_tij(self, t_transfer, nodes, n_requests, n_vehicles, n_trans_nodes,
                 include_charging=True, duplicate=True, eliminate_arcs=False,
                 di=None, ei=None, li=None, Lbar=None, P=None, D=None, N=None,
-                zeroDepot=None, endDepot=None, Cr=None, n=None, pair_pi_di=None, pair_pi_di_M=None):
+                zeroDepot=None, endDepot=None, Cr=None, n=None, pair_pi_di=None, pair_pi_di_M=None,
+                C=None, R=None):
         
         """
         Build tij and cij with options for charging, duplication, and arc elimination.
@@ -422,16 +423,29 @@ class DARPDataBuilder:
                             if tij[(self.base(i), self.base(pair_pi_di[i]))] + di[self.base(pair_pi_di[i])] + tij[(self.base(pair_pi_di[i]), self.base(j))] + di[self.base(j)] + tij[(self.base(j), self.base(pair_pi_di[i]))] > Lbar[self.base(i)]:
                                 del tij[(self.base(pair_pi_di[i]), self.base(j))]
 
-            # Transfer-specific cleaning only if Cr exists
+            # Remove arc from dropoff_node to transfer_node of that request
+            # Remove arc from transfer_node of a request to its pickup_node
             if Cr is not None:
                 for i in P:
                     drop_node = pair_pi_di[i]
                     if i in Cr:
                         for Si in Cr[i]:
-                            if (drop_node, Si) in tij:
+                            if (self.base(drop_node), self.base(Si)) in tij:
                                 del tij[(self.base(drop_node), self.base(Si))]
-                            if (Si, i) in tij:
+                            if (self.base(Si), self.base(i)) in tij:
                                 del tij[(self.base(Si), self.base(i))]
+
+            # # # Remove arcs from different transfer nodes of different requests
+            # # if Cr is not None:
+            # #     for r in R:
+            # #         for i in C:
+            # #             for j in Cr[r]:
+            # #                 if i not in Cr[r]:
+            # #                     if (self.base(i), self.base(j)) in tij:
+            # #                         del tij[self.base(i), self.base(j)]
+            # #                     if (self.base(j), self.base(i)) in tij:
+            # #                         del tij[self.base(j), self.base(i)]
+
 
         cij = tij.copy()
         return tij, cij
@@ -482,23 +496,6 @@ class DARPDataBuilder:
             ], dtype=object)
 
         else:
-            # t = np.array([
-            #     [  0,  23, 173, 131, 195, 170, 129, 160, 153,   0, 120,  21, 163],
-            #     [ 23,   0, 166, 123, 173, 179, 125, 138, 168,  23, 135,  26, 159],
-            #     [173, 166,   0,  57, 289,  41, 268, 254,  79, 173,  57, 191, 301],
-            #     [131, 123,  57,   0, 258,  72, 236, 222,  60, 131,  29, 148, 270],
-            #     [195, 173, 289, 258,   0, 318,  73,  35, 306, 195, 273, 174,  39],
-            #     [170, 179,  41,  72, 318,   0, 296, 282,  53, 170,  51, 191, 329],
-            #     [129, 125, 268, 236,  73, 296,   0,  48, 282, 129, 248, 108,  34],
-            #     [160, 138, 254, 222,  35, 282,  48,   0, 271, 160, 237, 139,  57],
-            #     [153, 168,  79,  60, 306,  53, 282, 271,   0, 153,  35, 174, 316],
-            #     [  0,  23, 173, 131, 195, 170, 129, 160, 153,   0, 120,  21, 163],
-            #     [120, 135,  57,  29, 273,  51, 248, 237,  35, 120,   0, 141, 283],
-            #     [ 21,  26, 191, 148, 174, 191, 108, 139, 174,  21, 141,   0, 142],
-            #     [163, 159, 301, 270,  39, 329,  34,  57, 316, 163, 283, 142,   0]
-            # ], dtype=float)
-
-            ### === Modified t to favorise the use of PT (foir verification of model) === ###
             t = np.array([
                 [  0,  23, 173, 131, 195, 170, 129, 160, 153,   0, 120,  21, 163],
                 [ 23,   0, 166, 123, 173, 179, 125, 138, 168,  23, 135,  26, 159],
@@ -510,10 +507,27 @@ class DARPDataBuilder:
                 [160, 138, 254, 222,  35, 282,  48,   0, 271, 160, 237, 139,  57],
                 [153, 168,  79,  60, 306,  53, 282, 271,   0, 153,  35, 174, 316],
                 [  0,  23, 173, 131, 195, 170, 129, 160, 153,   0, 120,  21, 163],
-                [120, 135,  57,  29, 273,  51, 248, 237,  35, 120,   0, 1, 1],
-                [ 21,  26, 191, 148, 174, 191, 108, 139, 174,  21, 1,   0, 1],
-                [163, 159, 301, 270,  39, 329,  34,  57, 316, 163, 1, 1,   0]
+                [120, 135,  57,  29, 273,  51, 248, 237,  35, 120,   0, 141, 283],
+                [ 21,  26, 191, 148, 174, 191, 108, 139, 174,  21, 141,   0, 142],
+                [163, 159, 301, 270,  39, 329,  34,  57, 316, 163, 283, 142,   0]
             ], dtype=float)
+
+            ### === Modified t to favorise the use of PT (foir verification of model) === ###
+            # t = np.array([
+            #     [  0,  23, 173, 131, 195, 170, 129, 160, 153,   0, 120,  21, 163],
+            #     [ 23,   0, 166, 123, 173, 179, 125, 138, 168,  23, 135,  26, 159],
+            #     [173, 166,   0,  57, 289,  41, 268, 254,  79, 173,  57, 191, 301],
+            #     [131, 123,  57,   0, 258,  72, 236, 222,  60, 131,  29, 148, 270],
+            #     [195, 173, 289, 258,   0, 318,  73,  35, 306, 195, 273, 174,  39],
+            #     [170, 179,  41,  72, 318,   0, 296, 282,  53, 170,  51, 191, 329],
+            #     [129, 125, 268, 236,  73, 296,   0,  48, 282, 129, 248, 108,  34],
+            #     [160, 138, 254, 222,  35, 282,  48,   0, 271, 160, 237, 139,  57],
+            #     [153, 168,  79,  60, 306,  53, 282, 271,   0, 153,  35, 174, 316],
+            #     [  0,  23, 173, 131, 195, 170, 129, 160, 153,   0, 120,  21, 163],
+            #     [120, 135,  57,  29, 273,  51, 248, 237,  35, 120,   0, 1, 1],
+            #     [ 21,  26, 191, 148, 174, 191, 108, 139, 174,  21, 1,   0, 1],
+            #     [163, 159, 301, 270,  39, 329,  34,  57, 316, 163, 1, 1,   0]
+            # ], dtype=float)
 
             nodes = np.array([
                 [0, "depot0", "", 0, 86400, 0, 0],
@@ -596,7 +610,7 @@ class DARPDataBuilder:
             eliminate_arcs=self.arc_elimination,
             di=di, ei=ei, li=li, Lbar=Lbar, P=P, D=D, N=N,
             zeroDepot=zeroDepot, endDepot=endDepot, Cr=Cr if self.duplicate_transfers else None,
-            n=n, pair_pi_di=pair_pi_di, pair_pi_di_M=pair_pi_di_M)
+            n=n, pair_pi_di=pair_pi_di, pair_pi_di_M=pair_pi_di_M, C=C, R=R)
         
         tij_keys = params['tij'].keys()
         sets["A"] = {(i, j) for i in N for j in N if (self.base(i), self.base(j)) in tij_keys and self.base(i) != self.base(j)}

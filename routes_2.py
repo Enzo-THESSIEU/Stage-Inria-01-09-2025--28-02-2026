@@ -168,6 +168,7 @@ class DARPRouteExtractor:
         zeroDepot_node, endDepot_node, A = self.sets["zeroDepot"], self.sets["endDepot"], [tuple(a) for a in self.sets["A"]]
         y, z, T_node = self.vars_["y"], self.vars_["z"], self.vars_["T_node"]
         fi_r, Departures = self.params["fi_r"], self.params["Departures"]
+        Cr = self.params['Cr']
 
         sum_balance = {}
 
@@ -186,14 +187,24 @@ class DARPRouteExtractor:
                 sum_zij = 0
                 sum_zji = 0
 
-                if node in C:
-                    for j in C:
-                        if (node, j) in A and (self.base(node), self.base(j)) in Departures:
-                            for d in Departures[(self.base(node), self.base(j))]:
-                                sum_zij += int(z[d, node, j].X)
-                        if (j, node) in A and (self.base(j), self.base(node)) in Departures:
-                            for d in Departures[(self.base(j), self.base(node))]:
-                                sum_zji += int(z[d, j, node].X)
+                if self.timetabled_departures:
+
+                    if node in C:
+                        for j in C:
+                            if (node, j) in A and (self.base(node), self.base(j)) in Departures:
+                                for d in Departures[(self.base(node), self.base(j))]:
+                                    sum_zij += int(z[d, node, j].X)
+                            if (j, node) in A and (self.base(j), self.base(node)) in Departures:
+                                for d in Departures[(self.base(j), self.base(node))]:
+                                    sum_zji += int(z[d, j, node].X)
+
+                else:
+                    if node in Cr[r]:
+                        for j in Cr[r]:
+                            if (node, j) in A:
+                                sum_zij += int(z[node, j].X)
+                            if (j, node) in A:
+                                sum_zji += int(z[j, node].X)
 
                 lhs = sum_yij + sum_zij - sum_yji - sum_zji
                 rhs = fi_r[(r, node)]
@@ -215,9 +226,11 @@ class DARPRouteExtractor:
         Handles both timetabled and non-timetabled cases robustly.
         """
         nodes = self.sets["nodes"]
+        R = self.sets['R']
         C = self.sets["C"]
         z = self.vars_["z"]
         T_node = self.vars_["T_node"]
+        Cr = self.params['Cr']
         used_PT_arcs = []
 
         print(f"PT extraction mode: {'timetabled' if self.timetabled_departures else 'simple'}")
@@ -243,24 +256,18 @@ class DARPRouteExtractor:
                                     f"T({j})={T_node[j].X:.2f}",
                                     f"z={z[d,i,j].X:.3f}"
                                 ])
-                        elif (i, j) in z:  # fallback if not 3D
-                            if z[i, j].X > 1e-6:
-                                used_PT_arcs.append([
-                                    (i, j),
-                                    f"T({i})={T_node[i].X:.2f}",
-                                    f"T({j})={T_node[j].X:.2f}",
-                                    f"z={z[i,j].X:.3f}"
-                                ])
+
         else:
-            for i in C:
-                for j in C:
-                    if (i, j) in z and z[i, j].X > 1e-6:
-                        used_PT_arcs.append([
-                            (i, j),
-                            f"T({i})={T_node[i].X:.2f}",
-                            f"T({j})={T_node[j].X:.2f}",
-                            f"z={z[i,j].X:.3f}"
-                        ])
+            for r in R:
+                for i in Cr[r]:
+                    for j in Cr[r]:
+                        if (i, j) in z and z[i, j].X > 1e-6:
+                            used_PT_arcs.append([
+                                (i, j),
+                                f"T({i})={T_node[i].X:.2f}",
+                                f"T({j})={T_node[j].X:.2f}",
+                                f"z={z[i,j].X:.3f}"
+                            ])
 
         print(f"🚌 Extracted {len(used_PT_arcs)} PT arcs.")
         return used_PT_arcs
