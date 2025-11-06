@@ -1,9 +1,11 @@
 class DARPRouteExtractor:
-    def __init__(self, m, vars_, sets, params, **options):
+    def __init__(self, m, vars_, sets, params, **options_1):
         self.m = m
         self.vars_ = vars_
         self.sets = sets
         self.params = params
+        
+        options = options_1['options']
 
         # Unpack all boolean flags, with defaults
         self.duplicate_transfers = options.get("duplicate_transfers", True)
@@ -48,6 +50,7 @@ class DARPRouteExtractor:
 
         # === VEHICLE ARCS ===
         used_arcs = {}
+        print("var_sub in Darp Extractor", self.variable_substitution)
 
         if self.variable_substitution:
             v = self.vars_["v"]
@@ -62,47 +65,89 @@ class DARPRouteExtractor:
                         f"Service time at node {i}",
                         T_node[i].X if (i in T_node) else None,
                     ]
+
+            # --- Detect first trips (from depot) ---
+            used_arcs_vehicle_1, used_arcs_vehicle_2 = [], []
+            first_trips = [used_arcs.pop(k) for k in list(used_arcs.keys()) if self.base(k[0]) == 0]
+
+            if first_trips:
+                used_arcs_vehicle_1.append(first_trips[0])
+            if len(first_trips) > 1:
+                used_arcs_vehicle_2.append(first_trips[1])
+
+            # --- Stitch vehicle paths ---
+            stuck_counter = 0
+            while used_arcs and stuck_counter < 100:
+                progress = False
+                for key in list(used_arcs.keys()):
+                    i, j = key
+                    if used_arcs_vehicle_1 and i == used_arcs_vehicle_1[-1][0][1]:
+                        used_arcs_vehicle_1.append(used_arcs.pop(key))
+                        progress = True
+                    elif used_arcs_vehicle_2 and i == used_arcs_vehicle_2[-1][0][1]:
+                        used_arcs_vehicle_2.append(used_arcs.pop(key))
+                        progress = True
+                if not progress:
+                    stuck_counter += 1
+                    if stuck_counter == 3:
+                        print("⚠️ No progress in vehicle stitching — breaking loop.")
+                        break
         else:
-            x = self.vars_["x"]
-            for (k, i, j) in x.keys():
-                if x[(k, i, j)].X > 0.5:
-                    node_type, req_id = self.safe_node_info(i)
-                    used_arcs[(i, j)] = [
-                        [i, j],
-                        i,
-                        node_type,
-                        req_id,
-                        f"Service time at node {i}",
-                        T_node[i].X if (i in T_node) else None,
-                    ]
+            x = self.vars_['x']
+            all_vehicle_routes = {}
+            stuck_counter_limit = 200
 
-        # --- Detect first trips (from depot) ---
-        used_arcs_vehicle_1, used_arcs_vehicle_2 = [], []
-        first_trips = [used_arcs.pop(k) for k in list(used_arcs.keys()) if self.base(k[0]) == 0]
+            for k in K:
+                # Collect all arcs used by vehicle k
+                used_arcs = [(i, j) for (i, j) in A if x[k, i, j].X > 0.5]
 
-        if first_trips:
-            used_arcs_vehicle_1.append(first_trips[0])
-        if len(first_trips) > 1:
-            used_arcs_vehicle_2.append(first_trips[1])
+                if not used_arcs:
+                    all_vehicle_routes[k] = []
+                    continue
 
-        # --- Stitch vehicle paths ---
-        stuck_counter = 0
-        while used_arcs and stuck_counter < 100:
-            progress = False
-            for key in list(used_arcs.keys()):
-                i, j = key
-                if used_arcs_vehicle_1 and i == used_arcs_vehicle_1[-1][0][1]:
-                    used_arcs_vehicle_1.append(used_arcs.pop(key))
-                    progress = True
-                elif used_arcs_vehicle_2 and i == used_arcs_vehicle_2[-1][0][1]:
-                    used_arcs_vehicle_2.append(used_arcs.pop(key))
-                    progress = True
-            if not progress:
-                stuck_counter += 1
-                if stuck_counter == 3:
-                    print("⚠️ No progress in vehicle stitching — breaking loop.")
-                    break
-        return used_arcs_vehicle_1, used_arcs_vehicle_2, used_arcs
+                # Find the starting arc (out of depot)
+                try:
+                    first_arc = next((i, j) for (i, j) in used_arcs if i == zeroDepot_node)
+                except StopIteration:
+                    print(f"[Warning] No starting arc for vehicle {k}")
+                    all_vehicle_routes[k] = []
+                    continue
+
+                route = [first_arc]
+                used_arcs.remove(first_arc)
+                stuck_counter = 0
+                progress = True
+
+                # Follow route until reaching the end depot or getting stuck
+                while progress and stuck_counter < stuck_counter_limit:
+                    progress = False
+                    last_j = route[-1][1]
+
+                    # Stop if we’ve reached the end depot
+                    if last_j == endDepot_node:
+                        break
+
+                    # Find next arc starting from the current endpoint
+                    for arc in used_arcs:
+                        if arc[0] == last_j:
+                            route.append(arc)
+                            used_arcs.remove(arc)
+                            progress = True
+                            break
+
+                    if not progress:
+                        stuck_counter += 1
+
+                # Store final route
+                all_vehicle_routes[k] = route
+
+                if stuck_counter >= stuck_counter_limit:
+                    print(f"[Warning] Vehicle {k} route extraction stopped (possible disconnected path)")
+                
+            used_arcs_vehicle_1 = all_vehicle_routes[0]
+            used_arcs_vehicle_2 = all_vehicle_routes[1]
+        
+        return used_arcs_vehicle_1, used_arcs_vehicle_2
 
     def extract_request_route_final(self):
 
@@ -258,16 +303,17 @@ class DARPRouteExtractor:
                                 ])
 
         else:
-            for r in R:
-                for i in Cr[r]:
-                    for j in Cr[r]:
-                        if (i, j) in z and z[i, j].X > 1e-6:
-                            used_PT_arcs.append([
-                                (i, j),
-                                f"T({i})={T_node[i].X:.2f}",
-                                f"T({j})={T_node[j].X:.2f}",
-                                f"z={z[i,j].X:.3f}"
-                            ])
+            if Cr:
+                for r in R:
+                    for i in Cr[r]:
+                        for j in Cr[r]:
+                            if (i, j) in z and z[i, j].X > 1e-6:
+                                used_PT_arcs.append([
+                                    (i, j),
+                                    f"T({i})={T_node[i].X:.2f}",
+                                    f"T({j})={T_node[j].X:.2f}",
+                                    f"z={z[i,j].X:.3f}"
+                                ])
 
         print(f"🚌 Extracted {len(used_PT_arcs)} PT arcs.")
         return used_PT_arcs

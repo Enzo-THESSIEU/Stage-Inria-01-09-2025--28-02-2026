@@ -85,6 +85,7 @@ class DARPModelBuilder:
             constraint_builder.add_scheduled_PT_constraints()
 
         if use_imjn:
+            op = 1
             constraint_builder.add_artificial_node_constraints()
 
         if MoPS:

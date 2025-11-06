@@ -142,7 +142,7 @@ class DARPExperimentRunner:
             # m.optimize(lambda m, where: self.stop_when_optimal(m, where))
             m.optimize()
 
-        write_model_verification_report(m = m, file_path="C:\\Users\\enzot\\Documents\\Césure\\1ère césure inria Lille\\Codes\\Stage-Inria-01-09-2025--28-02-2026\\test1__node_strength.txt")
+        write_model_verification_report(m = m, file_path="C:\\Users\\enzot\\Documents\\Césure\\1ère césure inria Lille\\Codes\\Stage-Inria-01-09-2025--28-02-2026\\test1_PT.txt")
 
         end_cpu = t.process_time()
         end_wall = t.perf_counter()
@@ -156,6 +156,8 @@ class DARPExperimentRunner:
             m.write(f"{model_name}.ilp")
             m.write(f"{model_name}.iis")
             raise SystemExit("Model infeasible; IIS written.")
+        
+        print("var_sub: ", bool_params['variable_substitution'], "\n")
 
         # === Extract routes ===
         extractor = DARPRouteExtractor(
@@ -165,21 +167,24 @@ class DARPExperimentRunner:
             params = data_params,
             options = bool_params
         )
-        v1, v2, used_arcs = extractor.extract_vehicle_route_final()
+        v1, v2 = extractor.extract_vehicle_route_final()
         r1, r2, r3, r4 = extractor.extract_request_route_final()
         z1 = extractor.extract_PT_route_final()
 
         # === Debugging tools ===
-        debugger = DARPDebuggingFunctions(m, vars_, data_sets, data_params)
+        debugger = DARPDebuggingFunctions(m, vars_, data_sets, data_params, options = bool_params)
 
         # 1️⃣ Extract variable values
-        z_all, z_nonzero, y_r4, a_values, v_values_1, sum_v = debugger.extract_variable_values()
+        z_all, z_nonzero, y_r4, a_values, v_values_1, sum_v, x_values1 = debugger.extract_variable_values()
 
         # 2️⃣ Check passenger transfer balance
-        wrong_sum_balance = debugger.check_transfer_balance(extractor)
+        # wrong_sum_balance = debugger.check_transfer_balance(extractor)
 
         # 3️⃣ Compute constraint balance
-        Constraint_val = debugger.compute_constraint_balance()
+        Constraint_val, Problems = debugger.compute_constraint_balance()
+
+        # Flow Conservation
+        flow_conservation, problems = debugger.check_flow_conservation()
 
         # 4️⃣ Print and log Z-variable summary
         debugger.print_z_variable_summary(model_name)
@@ -197,21 +202,24 @@ class DARPExperimentRunner:
             "Request 3 Route": str(r3),
             "Request 4 Route": str(r4),
             "PT Arcs used": str(z1),
-            "All DAR Arcs used": str(used_arcs),
             "CPU Time (s)": cpu_time,
             "Elapsed Time (s)": elapsed_time
         }
 
         # === Separate debugging data ===
         debugging_data = {
-            "All values of z": z_all,
+            # "All values of z": z_all,
             "z_values_1": z_nonzero,
-            "v_values_1": v_values_1,
-            "sum obj function": sum_v,
-            "All values of y (req 4)": y_r4,
-            "sum_balance": wrong_sum_balance,
-            "a_values": a_values,
-            "Constraint_val": Constraint_val
+            # "v_values_1": v_values_1,
+            # "sum obj function": sum_v,
+            # "All values of y (req 4)": y_r4,
+            # "sum_balance": wrong_sum_balance,
+            # "a_values": a_values,
+            "Constraint_val": Constraint_val,
+            "Problems transfer Balance": Problems,
+            # "x_values": x_values1,
+            # "Flow Conservation": flow_conservation,
+            # "Problems": problems
         }
 
         # === Store both ===
@@ -219,6 +227,7 @@ class DARPExperimentRunner:
         self.debugging_data = debugging_data  # or append to a list if you run multiple models
 
         print(result)
+        print(debugging_data)
         return result, debugging_data
 
 
@@ -482,13 +491,13 @@ class DARPExperimentRunner:
 
 # === Example usage ===
 if __name__ == "__main__":
-    TIME_LIMIT = 2 * 60 * 60
+    TIME_LIMIT = 20 * 60 * 60
     bool_params_singular = {
         "duplicate_transfers": False,
         "arc_elimination": True,
-        "variable_substitution": True,
+        "variable_substitution": False,
         "subtour_elimination": True,
-        "transfer_node_strengthening": True,
+        "transfer_node_strengthening": False,
         "ev_constraints": False,
         "timetabled_departures": True,
         "use_imjn": True,
