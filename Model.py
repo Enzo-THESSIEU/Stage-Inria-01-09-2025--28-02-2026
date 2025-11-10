@@ -93,6 +93,8 @@ class DARPModelBuilder:
 
         # constraint_builder.base_model_optimal_solution_constrainer_paper()
 
+        constraint_builder.debugging_constraint()
+
         # === Finalize ===
         m.update()
         self.model, self.vars = m, vars_

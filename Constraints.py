@@ -225,11 +225,11 @@ class DARPConstraintBuilder:
             # for i in C:
             #     self.m.addConstr(
             #         gb.quicksum(x[k, i, j] for k in K for j in N if (i, j) in A) <= 1,
-            #         name=f"∑_k∑_j x[k,{i},j] == 1  ∀i∈(C)"
+            #         name=f"∑_k∑_j x[k,{i},j] <= 1  ∀i∈(C)"
             #     )
             #     self.m.addConstr(
             #         gb.quicksum(x[k, j, i] for k in K for j in N if (j, i) in A) <= 1,
-            #         name=f"∑_k∑_j x[k,j,{i}] == 1  ∀i∈(C)"
+            #         name=f"∑_k∑_j x[k,j,{i}] <= 1  ∀i∈(C)"
             #     )
 
             # (2') Each vehicle leaves depot once
@@ -257,14 +257,14 @@ class DARPConstraintBuilder:
                 )
 
             # (5') Passenger-vehicle link: y[r,i,j] ≤ ∑_k x[k,i,j]
-            # for r in R:
-            #     for (i, j) in A:
-            #         if (r, i, j) in y:
-            #             self.m.addConstr(
-            #                 y[r, i, j] <= gb.quicksum(x[k, i, j] for k in K),
-            #                 name=f"y[{r},{i},{j}] ≤ ∑_k x[k,{i},{j}]"
-            #             )
-    
+            for r in R:
+                for (i, j) in A:
+                    if (r, i, j) in y:
+                        self.m.addConstr(
+                            y[r, i, j] <= gb.quicksum(x[k, i, j] for k in K),
+                            name=f"y[{r},{i},{j}] ≤ ∑_k x[k,{i},{j}]"
+                        )
+
     def add_passenger_balance_constraints(self):
         nodes, N, P, D, C, F, R, K, P_M, D_M, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets['P_M'], self.sets['D_M'], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
         y, z = self.vars_["y"], self.vars_["z"]
@@ -601,33 +601,42 @@ class DARPConstraintBuilder:
 
         # === CASE: No Variable Substitution ===
         else:
-            if Cr:
-                for r in R:
-                    for i in Cr[r]:
-                        self.m.addConstr(
-                            gb.quicksum(
-                                gb.quicksum(x[k, j, i] for k in K)
-                                for j in N if (j, i) in A
-                            )
-                            ==
-                            gb.quicksum(
-                                z[(i, j)] + z[(j, i)]
-                                for j in Cr[r] if (i, j) in A
-                            ),
-                            name=(
-                                f"∑_k∑_j x[k,j,{i}] = ∑_j (z[{i},j] + z[j,{i}]) "
-                                f"∀i∈Cr[{r}], no_variable_substitution"
-                            )
-                        )
-
-                for r in R:
+            if self.timetabled_departures and Departures is not None:
+                for i in C:
                     self.m.addConstr(
+                        gb.quicksum(x[k, j, i] for k in K for j in N if (j, i) in A)
+                        ==
                         gb.quicksum(
-                            gb.quicksum(x[k, i, j] for k in K)
-                            for i in Cr[r] for j in N if (i, j) in A
-                        ) <= 2,
-                        name=f"∑_k∑_i∑_j x[k,i,j] ≤ 2  ∀i∈Cr[{r}]"
+                            z[(d, i, j)] + z[(d, j, i)]
+                            for j in C
+                            if (i, j) in A and i != j and (self.base(i), self.base(j)) in Departures
+                            for d in Departures[(self.base(i), self.base(j))].keys()
+                        ),
+                        name=(
+                            f"∑_j v[j,{i}] = ∑_d∑_j (z[d,{i},j] + z[d,j,{i}]) "
+                            f"∀i∈C with timetabled Departures"
+                        )
                     )
+
+            else:
+                if Cr:
+                    for r in R:
+                        for i in Cr[r]:
+                            self.m.addConstr(
+                                gb.quicksum(
+                                    gb.quicksum(x[k, j, i] for k in K)
+                                    for j in N if (j, i) in A
+                                )
+                                ==
+                                gb.quicksum(
+                                    z[(i, j)] + z[(j, i)]
+                                    for j in Cr[r] if (i, j) in A
+                                ),
+                                name=(
+                                    f"∑_k∑_j x[k,j,{i}] = ∑_j (z[{i},j] + z[j,{i}]) "
+                                    f"∀i∈Cr[{r}], no_variable_substitution"
+                                )
+                            )
         
     def add_battery_constraints(self):
         nodes, N, P, D, C, F, R, K, P_M, D_M, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets['P_M'], self.sets['D_M'], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
@@ -774,7 +783,6 @@ class DARPConstraintBuilder:
 
         #     else:
         #         self.m.addConstr(a[j] - gb.quicksum(x[k, i, j] for k in K for i in N if (i,j) in A) == 0 , name = "link a_im to v_ij")
-
 
     def add_MoPS_constraints(self):
         nodes, N, P, D, C, F, R, K, P_M, D_M, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets['P_M'], self.sets['D_M'], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
@@ -955,4 +963,6 @@ class DARPConstraintBuilder:
         #             if (i, j) in z:
         #                 self.m.addConstr(z[i, j] == 0, name=f"fix_z0[{i},{j}]")
 
-
+    def debugging_constraint(self):
+        z = self.vars_['z']
+        self.m.addConstr(gb.quicksum(z[d, i, j] for (d, i, j) in z.keys()) >= 1)

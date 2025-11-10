@@ -80,6 +80,7 @@ class DARPDebuggingFunctions:
         P, D = self.sets['P'], self.sets["D"]
         Departures = self.params['Departures']
         fi_r = self.params['fi_r']
+        z = self.vars_['z']
 
         Constraint_val = {}
         problems = []
@@ -99,19 +100,21 @@ class DARPDebuggingFunctions:
                     for j in N:
                         if (self.base(i), self.base(j)) in Departures:
                             for d in Departures[(self.base(i), self.base(j))]:
-                                if (d, i, j) in self.vars_['z']:
-                                    z_sum_pickup += self.vars_['z'][(d, i, j)].X
+                                if (d, i, j) in z.keys():
+                                    z_sum_pickup += z[(d, i, j)].X
                         if (self.base(j), self.base(i)) in Departures:
                             for d in Departures[(self.base(j), self.base(i))]:
-                                if (d, j, i) in self.vars_['z']:
-                                    z_sum_dropoff += self.vars_['z'][(d, j, i)].X
+                                if (d, j, i) in z:
+                                    z_sum_dropoff += z[(d, j, i)].X
 
                 else:
                     for j in C:
                         if (i,j) in A:
-                            z_sum_pickup += self.vars_['z'][(i, j)].X
+                            if (i,j) in z.keys():
+                                z_sum_pickup += z[(i, j)].X
                         if (j,i) in A:
-                            z_sum_dropoff += self.vars_['z'][(j, i)].X
+                            if (j,i) in z.keys():
+                                z_sum_dropoff += z[(j, i)].X
 
                 lhs = sum_pickup + z_sum_pickup - sum_dropoff - z_sum_dropoff
                 rhs = fi_r.get((r, i), 0)

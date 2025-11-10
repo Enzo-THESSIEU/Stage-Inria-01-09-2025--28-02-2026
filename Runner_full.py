@@ -134,13 +134,13 @@ class DARPExperimentRunner:
                         # === ADD CUT to current LP relaxation ===
                         m.cbCut(expr >= 1)
                         # print(f"Added user cut for cluster {cluster}")
-                # self.stop_when_optimal(m, where)
+                self.stop_when_optimal(m, where)
 
 
             m.optimize(lp_callback)
         else:
-            # m.optimize(lambda m, where: self.stop_when_optimal(m, where))
-            m.optimize()
+            m.optimize(lambda m, where: self.stop_when_optimal(m, where))
+            # m.optimize()
 
         write_model_verification_report(m = m, file_path="C:\\Users\\enzot\\Documents\\Césure\\1ère césure inria Lille\\Codes\\Stage-Inria-01-09-2025--28-02-2026\\test1_PT.txt")
 
@@ -235,11 +235,15 @@ class DARPExperimentRunner:
     def run_all_combinations(self):
         """Run all combinations of Boolean model parameters."""
         boolean_params = {
-            'roaund': [True, False],
-            'robund': [True, False],
+            'duplicate_transfers': [True, False],
             'arc_elimination': [True, False],
             'variable_substitution': [True, False],
             'subtour_elimination': [True, False],
+            # 'transfer_node_strengthening': [True, False],
+            # 'ev_constraints': [True, False],
+            # 'use_imjn': [True, False],
+            # 'timetabled_departures': [True, False],
+            # 'MoPS': [True, False],
         }                 
 
         all_combos = list(itertools.product(*boolean_params.values()))
@@ -261,7 +265,7 @@ class DARPExperimentRunner:
             params['transfer_node_strengthening'] = True
             params['timetabled_departures'] = False
             params['use_imjn'] = False
-            params['duplicate_transfers'] = True
+            # params['duplicate_transfers'] = True
 
             # Feasibility filters
             skip_reason = self.check_invalid_combo(params)
@@ -491,13 +495,13 @@ class DARPExperimentRunner:
 
 # === Example usage ===
 if __name__ == "__main__":
-    TIME_LIMIT = 20 * 60 * 60
+    TIME_LIMIT = 2 * 60 * 60
     bool_params_singular = {
         "duplicate_transfers": False,
         "arc_elimination": True,
-        "variable_substitution": False,
+        "variable_substitution": True,
         "subtour_elimination": True,
-        "transfer_node_strengthening": False,
+        "transfer_node_strengthening": True,
         "ev_constraints": False,
         "timetabled_departures": True,
         "use_imjn": True,
