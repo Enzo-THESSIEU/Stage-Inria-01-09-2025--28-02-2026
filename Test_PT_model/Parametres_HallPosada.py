@@ -21,8 +21,8 @@ class DARPDataBuilder_HallPosada:
     def build_nodes(self):
         """Returns the base pickup, dropoff, depot, and transfer nodes."""
         nodes = np.array([
-            [0, "depot0", "", 0, 86400, 0, 0],
-            [9, "depot1", "", 0, 86400, 0, 0],
+            [0, "depot0", "", 0, 86400, 5, 0],
+            [9, "depot1", "", 0, 86400, 5, 0],
             [1, "pickup", 1, 50, 950, 5, 1],
             [5, "dropoff", 1, "", "", 5, 0],
             [2, "pickup", 2, 350, 1250, 5, 1],
@@ -85,7 +85,7 @@ class DARPDataBuilder_HallPosada:
 
     def build_service_params(self, nodes, t, NP, ND):
         """Basic service-time, load, and time-window parameters."""
-        di = {int(r[0]): float(r[5]) for r in nodes if r[5] != ""}
+        di = {int(r[0]): float(r[5]) if r[5] != "" else 5 for r in nodes}
         ei = {int(r[0]): float(r[3]) for r in nodes if r[3] != ""}
         li = {int(r[0]): float(r[4]) for r in nodes if r[4] != ""}
         pair_pi_di = {p[0]: d[0] for p, d in zip(NP, ND)}  # flat link

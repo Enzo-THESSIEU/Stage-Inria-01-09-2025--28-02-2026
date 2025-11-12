@@ -283,7 +283,7 @@ class DARPDataBuilder:
                 fi_r[r, d] = -1
         return fi_r
 
-    def build_departures(self, t, C_minor, interval=30, planning_horizon=24*30):    ##### Modify again ######
+    def build_departures(self, t, C_minor, interval=10, planning_horizon=24*60):    ##### Modify again ######
         """
         Build Departures dictionary with forward and backward arcs (including skip arcs).
 
@@ -304,7 +304,7 @@ class DARPDataBuilder:
         left_terminal = transfer_nodes[0]
         for j in range(1, len(transfer_nodes)):
             Departures[(left_terminal, transfer_nodes[j])] = {
-                a: 650 + interval * a for a in range(int(n_intervals))
+                a: interval * a for a in range(int(n_intervals))
             }
 
         # Forward arcs (including skips)
@@ -319,7 +319,7 @@ class DARPDataBuilder:
         right_terminal = transfer_nodes[-1]
         for j in range(len(transfer_nodes)-1):
             Departures[(right_terminal, transfer_nodes[j])] = {
-                a: 650 + interval * a for a in range(int(n_intervals))
+                a: interval * a for a in range(int(n_intervals))
             }
 
         # Backward arcs (including skips)
@@ -337,7 +337,7 @@ class DARPDataBuilder:
     def build_tij(self, t_transfer, nodes, n_requests, n_vehicles, n_trans_nodes,
                 di=None, ei=None, li=None, Lbar=None, P=None, D=None, N=None,
                 zeroDepot=None, endDepot=None, Cr=None, n=None, pair_pi_di=None, pair_pi_di_M=None,
-                C=None, R=None):
+                C=None, R=None, P_M=None, D_M=None):
         
         """
         Build tij and cij with options for charging, duplication, and arc elimination.
@@ -379,10 +379,17 @@ class DARPDataBuilder:
             for i in D:
                 if (base(zeroDepot), base(i)) in tij:
                     del tij[(base(zeroDepot), base(i))]
-
             for i in P:
                 if (base(i), base(endDepot)) in tij:
                     del tij[(base(i), base(endDepot))]
+            
+            if self.MoPS:
+                for i in D_M:
+                    if (base(zeroDepot), base(i)) in tij:
+                        del tij[(base(zeroDepot), base(i))]
+                for i in P_M:
+                    if (base(i), base(endDepot)) in tij:
+                        del tij[(base(i), base(endDepot))]
 
             # --- Remove self-loops ---
             for i in N:
@@ -394,9 +401,10 @@ class DARPDataBuilder:
                 if (base(d), base(p)) in tij:
                     del tij[(base(d), base(p))]
 
-            for p, d in pair_pi_di_M.items():
-                if (base(d), base(p)) in tij:
-                    del tij[(base(d), base(p))]
+            if self.MoPS:
+                for p, d in pair_pi_di_M.items():
+                    if (base(d), base(p)) in tij:
+                        del tij[(base(d), base(p))]
 
             # --- Time-window infeasibility ---
             for i in N:
@@ -417,37 +425,84 @@ class DARPDataBuilder:
                             if (bj, base(pair_pi_di[i])) in tij:
                                 del tij[(bj, base(pair_pi_di[i]))]
 
-            # --- Path infeasibility ---
-            for i in P:
-                for j in P:
-                    if i != j:
+            if self.MoPS:
+                for i in P_M:
+                    for j in N:
                         bi, bj = base(i), base(j)
-                        dpi, dpj = base(pair_pi_di[i]), base(pair_pi_di[j])
-                        if (bj, bi) in tij and (bi, dpi) in tij and (dpj, dpi) in tij:
-                            if tij[(bj, bi)] + di[bi] + tij[(bi, dpi)] + di[dpi] + tij[(dpj, dpi)] > Lbar[bi]:
-                                if (bi, dpi) in tij:
-                                    del tij[(bi, dpi)]
+                        if (bi, bj) in tij and (bj, base(pair_pi_di_M[i])) in tij:
+                            if tij[(bi, bj)] + di[bj] + tij[(bj, base(pair_pi_di_M[i]))] >= Lbar[bi]:
+                                if (bi, bj) in tij:
+                                    del tij[(bi, bj)]
+                                if (bj, base(pair_pi_di[i])) in tij:
+                                    del tij[(bj, base(pair_pi_di[i]))]
 
-            for i in P:
-                for j in P:
-                    if i != j:
-                        bi, bj = base(i), base(j)
-                        dpi = base(pair_pi_di[i])
-                        if (bi, dpi) in tij and (dpi, bj) in tij and (bj, dpi) in tij:
-                            if tij[(bi, dpi)] + di[dpi] + tij[(dpi, bj)] + di[bj] + tij[(bj, dpi)] > Lbar[bi]:
-                                if (dpi, bj) in tij:
-                                    del tij[(dpi, bj)]
+
+            # --- Path infeasibility ---
+            pair_all = {**pair_pi_di, **pair_pi_di_M}
+
+            if self.MoPS:
+                for i in P + P_M:
+                    for j in P + P_M:
+                        if i != j:
+                            bi, bj = base(i), base(j)
+                            dpi, dpj = base(pair_all[i]), base(pair_all[j])
+                            if (bj, bi) in tij and (bi, dpi) in tij and (dpj, dpi) in tij:
+                                if tij[(bj, bi)] + di[bi] + tij[(bi, dpi)] + di[dpi] + tij[(dpj, dpi)] > Lbar[bi]:
+                                    if (bi, dpi) in tij:
+                                        del tij[(bi, dpi)]
+                for i in P + P_M:
+                    for j in P + P_M:
+                        if i != j:
+                            bi, bj = base(i), base(j)
+                            dpi = base(pair_all[i])
+                            if (bi, dpi) in tij and (dpi, bj) in tij and (bj, dpi) in tij:
+                                if tij[(bi, dpi)] + di[dpi] + tij[(dpi, bj)] + di[bj] + tij[(bj, dpi)] > Lbar[bi]:
+                                    if (dpi, bj) in tij:
+                                        del tij[(dpi, bj)]
+
+            else:
+                for i in P:
+                    for j in P:
+                        if i != j:
+                            bi, bj = base(i), base(j)
+                            dpi, dpj = base(pair_pi_di[i]), base(pair_pi_di[j])
+                            if (bj, bi) in tij and (bi, dpi) in tij and (dpj, dpi) in tij:
+                                if tij[(bj, bi)] + di[bi] + tij[(bi, dpi)] + di[dpi] + tij[(dpj, dpi)] > Lbar[bi]:
+                                    if (bi, dpi) in tij:
+                                        del tij[(bi, dpi)]
+                for i in P:
+                    for j in P:
+                        if i != j:
+                            bi, bj = base(i), base(j)
+                            dpi = base(pair_pi_di[i])
+                            if (bi, dpi) in tij and (dpi, bj) in tij and (bj, dpi) in tij:
+                                if tij[(bi, dpi)] + di[dpi] + tij[(dpi, bj)] + di[bj] + tij[(bj, dpi)] > Lbar[bi]:
+                                    if (dpi, bj) in tij:
+                                        del tij[(dpi, bj)]
+
+
 
             # --- Remove dropoff→transfer and transfer→pickup arcs (per request) ---
             if Cr is not None:
-                for p in P:
-                    drop_node = pair_pi_di[p]
-                    if base(p) in Cr:   # safer lookup by base
-                        for Si in Cr[base(p)]:
-                            if (base(drop_node), base(Si)) in tij:
-                                del tij[(base(drop_node), base(Si))]
-                            if (base(Si), base(p)) in tij:
-                                del tij[(base(Si), base(p))]
+                if self.MoPS:
+                    for p in P + P_M:
+                        drop_node = pair_all[p]
+                        if base(p) in Cr:   # safer lookup by base
+                            for Si in Cr[base(p)]:
+                                if (base(drop_node), base(Si)) in tij:
+                                    del tij[(base(drop_node), base(Si))]
+                                if (base(Si), base(p)) in tij:
+                                    del tij[(base(Si), base(p))]
+
+                else:
+                    for p in P:
+                        drop_node = pair_pi_di[p]
+                        if base(p) in Cr:   # safer lookup by base
+                            for Si in Cr[base(p)]:
+                                if (base(drop_node), base(Si)) in tij:
+                                    del tij[(base(drop_node), base(Si))]
+                                if (base(Si), base(p)) in tij:
+                                    del tij[(base(Si), base(p))]
 
 
             # # # Remove arcs from different transfer nodes of different requests
@@ -619,12 +674,19 @@ class DARPDataBuilder:
             Q=Q, T=T, qr=qr, di=di, ei=ei, li=li,
             ek=ek, lk=lk, fi_r=fi_r, Lbar=Lbar, pair_pi_di=pair_pi_di, pair_pi_di_M=pair_pi_di_M, M=M, n=n)
 
-        params['tij'], params['cij'] = self.build_tij(
-            t_transfer, nodes, n_requests, n_vehicles, n_trans_nodes,
-            di=di, ei=ei, li=li, Lbar=Lbar, P=P, D=D, N=N,
-            zeroDepot=zeroDepot, endDepot=endDepot, Cr=Cr if self.duplicate_transfers else None,
-            n=n, pair_pi_di=pair_pi_di, pair_pi_di_M=pair_pi_di_M, C=C, R=R)
-        
+        if self.MoPS:
+            params['tij'], params['cij'] = self.build_tij(
+                t_transfer, nodes, n_requests, n_vehicles, n_trans_nodes,
+                di=di, ei=ei, li=li, Lbar=Lbar, P=P, D=D, N=N,
+                zeroDepot=zeroDepot, endDepot=endDepot, Cr=Cr if self.duplicate_transfers else None,
+                n=n, pair_pi_di=pair_pi_di, pair_pi_di_M=pair_pi_di_M, C=C, R=R, P_M=P_M, D_M=D_M)
+        else:
+            params['tij'], params['cij'] = self.build_tij(
+                t_transfer, nodes, n_requests, n_vehicles, n_trans_nodes,
+                di=di, ei=ei, li=li, Lbar=Lbar, P=P, D=D, N=N,
+                zeroDepot=zeroDepot, endDepot=endDepot, Cr=Cr if self.duplicate_transfers else None,
+                n=n, pair_pi_di=pair_pi_di, pair_pi_di_M=pair_pi_di_M, C=C, R=R)
+            
         tij_keys = params['tij'].keys()
         sets["A"] = {(i, j) for i in N for j in N if (self.base(i), self.base(j)) in tij_keys and self.base(i) != self.base(j)}
 

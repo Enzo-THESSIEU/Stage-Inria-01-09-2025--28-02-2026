@@ -9,7 +9,7 @@ from Model import DARPModelBuilder
 from routes_2 import DARPRouteExtractor
 from Parametres import DARPDataBuilder
 from Cluster_Heuristic import DARPHeuristic 
-from Debugger_code import DARPDebuggingFunctions
+from Debugger_code import DARPDebuggingFunctions, DARPRouteDebugging
 from model_verification import write_model_verification_report
 
 class DARPExperimentRunner:
@@ -120,7 +120,7 @@ class DARPExperimentRunner:
                                 v[i, j]
                                 for i in cluster
                                 for j in N
-                                if j not in cluster and (i, j) in A
+                                if j not in cluster and (i, j) in v.keys()
                             )
                         else:
                             expr = gb.quicksum(
@@ -128,7 +128,7 @@ class DARPExperimentRunner:
                                 for k in K
                                 for i in cluster
                                 for j in N
-                                if j not in cluster and (i, j) in A
+                                if j not in cluster and (k, i, j) in x.keys()
                             )
 
                         # === ADD CUT to current LP relaxation ===
@@ -142,7 +142,7 @@ class DARPExperimentRunner:
             m.optimize(lambda m, where: self.stop_when_optimal(m, where))
             # m.optimize()
 
-        write_model_verification_report(m = m, file_path="C:\\Users\\enzot\\Documents\\Césure\\1ère césure inria Lille\\Codes\\Stage-Inria-01-09-2025--28-02-2026\\test1_PT.txt")
+        write_model_verification_report(m = m, file_path="C:\\Users\\enzot\\Documents\\Césure\\1ère césure inria Lille\\Codes\\Stage-Inria-01-09-2025--28-02-2026\\test1_Flow_conservation_x.txt")
 
         end_cpu = t.process_time()
         end_wall = t.perf_counter()
@@ -167,9 +167,6 @@ class DARPExperimentRunner:
             params = data_params,
             options = bool_params
         )
-        v1, v2 = extractor.extract_vehicle_route_final()
-        r1, r2, r3, r4 = extractor.extract_request_route_final()
-        z1 = extractor.extract_PT_route_final()
 
         # === Debugging tools ===
         debugger = DARPDebuggingFunctions(m, vars_, data_sets, data_params, options = bool_params)
@@ -189,12 +186,30 @@ class DARPExperimentRunner:
         # 4️⃣ Print and log Z-variable summary
         debugger.print_z_variable_summary(model_name)
 
+        routedebugger = DARPRouteDebugging(
+            m = m,
+            vars_ = vars_,
+            sets = data_sets,
+            params = data_params,
+            options = bool_params
+        )
+
+        v1, v2 = routedebugger.extract_vehicle_route_final()
+        r1, r2, r3, r4 = routedebugger.extract_request_route_final()
+        z1 = routedebugger.extract_PT_route_final()
+
         # === Save main experiment results ===
         result = {
             "Model": model_name,
             **bool_params,
             "Objective": m.ObjVal,
             "Lower Bound": m.ObjBound,
+            "CPU Time (s)": cpu_time,
+            "Elapsed Time (s)": elapsed_time
+        }
+
+        # === Separate debugging data ===
+        route_debugging_data = {
             "Vehicle 1 Route": str(v1),
             "Vehicle 2 Route": str(v2),
             "Request 1 Route": str(r1),
@@ -202,11 +217,8 @@ class DARPExperimentRunner:
             "Request 3 Route": str(r3),
             "Request 4 Route": str(r4),
             "PT Arcs used": str(z1),
-            "CPU Time (s)": cpu_time,
-            "Elapsed Time (s)": elapsed_time
         }
 
-        # === Separate debugging data ===
         debugging_data = {
             # "All values of z": z_all,
             "z_values_1": z_nonzero,
@@ -227,7 +239,12 @@ class DARPExperimentRunner:
         self.debugging_data = debugging_data  # or append to a list if you run multiple models
 
         print(result)
-        print(debugging_data)
+        print("=========================================================\n")
+        extractor.summarize()
+        print("=========================================================\n")
+        print(route_debugging_data)
+        print("=========================================================\n")
+        # print(debugging_data)
         return result, debugging_data
 
 
@@ -497,14 +514,14 @@ class DARPExperimentRunner:
 if __name__ == "__main__":
     TIME_LIMIT = 2 * 60 * 60
     bool_params_singular = {
-        "duplicate_transfers": False,
+        "duplicate_transfers": True,
         "arc_elimination": True,
         "variable_substitution": True,
         "subtour_elimination": True,
         "transfer_node_strengthening": True,
         "ev_constraints": False,
-        "timetabled_departures": True,
-        "use_imjn": True,
+        "timetabled_departures": False,
+        "use_imjn": False,
         "MoPS": False
     }
 

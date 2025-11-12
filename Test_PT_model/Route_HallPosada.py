@@ -153,5 +153,11 @@ if __name__ == "__main__":
     model, vars_ = builder.build()
     builder.run()
 
+    from Debugger_HallPosada import DARPFlowDebugger_HallPosada
+    debugger = DARPFlowDebugger_HallPosada(model, vars_, builder.sets, builder.params)
+    debugger.check_passenger_flow_balance()
+
     extractor = DARPRouteExtractor_HallPosada(model, vars_, builder.sets, builder.params)
     veh_routes, req_routes, pt_routes = extractor.summarize()
+
+

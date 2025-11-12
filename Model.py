@@ -64,7 +64,11 @@ class DARPModelBuilder:
         # === Step 5: Objective ===
         constraint_builder.variable_substitution = variable_substitution
         constraint_builder.timetabled_departures = timetabled_departures
-        constraint_builder.set_objective()
+        if MoPS:
+            w = [0, 0.5, 0.5, 0]
+        else:
+            w=[1,0,0,0]
+        constraint_builder.set_objective(w)
 
         # === Step 6: Constraints ===
         constraint_builder.add_vehicle_logic_constraints()
@@ -93,7 +97,7 @@ class DARPModelBuilder:
 
         # constraint_builder.base_model_optimal_solution_constrainer_paper()
 
-        constraint_builder.debugging_constraint()
+        # constraint_builder.debugging_constraint()
 
         # === Finalize ===
         m.update()

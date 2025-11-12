@@ -35,7 +35,14 @@ class DARPConstraintBuilder_HallPosada:
         # Vehicle routing arcs
         x = self.m.addVars(A, K, vtype=gb.GRB.BINARY, name="x[imjnk]")
         # Passenger flows
+        # Passenger flow arcs (exclude transfer→transfer arcs)
+        NG_nodes = {i for (i, m) in NG}
+        DAR_arcs = [
+            (i, j) for (i, j) in A
+            if not (self.base(i) in NG_nodes and self.base(j) in NG_nodes)
+        ]
         y = self.m.addVars(R, A, vtype=gb.GRB.BINARY, name="y[imjnr]")
+
         # PT arcs (departures)
         z = {}
         for (i, j) in Dij:
@@ -134,7 +141,7 @@ class DARPConstraintBuilder_HallPosada:
             for i in NP + ND:
                 inflow = gb.quicksum(y[r, j, i] for (j, jj) in A if jj == i)
                 outflow = gb.quicksum(y[r, i, j] for (ii, j) in A if ii == i)
-                rhs = Fir.get((r, i), 0)
+                rhs = Fir[r, i]
                 self.m.addConstr(outflow - inflow == rhs,
                                  name=f"(24)_balance_{r}_{i}")
 
@@ -142,8 +149,8 @@ class DARPConstraintBuilder_HallPosada:
         for r in R:
             for (i, m) in NG:
                 # --- DAR arcs ---
-                inflow_y = gb.quicksum(y[r, j, (i, m)] for (j, jj) in A if jj == (i, m))
-                outflow_y = gb.quicksum(y[r, (i, m), j] for (ii, j) in A if ii == (i, m))
+                inflow_y = gb.quicksum(y[r, j, jj] for (j, jj) in A if jj == (i, m))
+                outflow_y = gb.quicksum(y[r, ii, j] for (ii, j) in A if ii == (i, m))
 
                 # --- PT arcs (flat indices) ---
                 inflow_z = gb.quicksum(
@@ -158,7 +165,7 @@ class DARPConstraintBuilder_HallPosada:
                 )
 
                 self.m.addConstr(
-                    (outflow_y + outflow_z) - (inflow_y + inflow_z) == 0,
+                    (outflow_y + outflow_z) - (inflow_y + inflow_z) == Fir[r, (i,m)],
                     name=f"(25)_transfer_balance_{r}_{i}_{m}"
                 )
 
@@ -382,6 +389,17 @@ class DARPConstraintBuilder_HallPosada:
                 )
 
         print("✅ Strengthening constraints (47–52) added.")
+
+    def add_extra_constraints(self):
+        x, y = self.vars_["x"], self.vars_["y"]
+        A, R, K = self.sets["A"], self.sets["R"], self.sets["K"]
+        for r in R:
+            for (i, j) in A:
+                self.m.addConstr(
+                    y[r, i, j] <= gb.quicksum(x[i, j, k] for k in K),
+                    name=f"(PV)_y_le_x_r{r}_i{self.base(i)}_j{self.base(j)}"
+                )
+
 
 
     # --------------------------------------------------------------------------
