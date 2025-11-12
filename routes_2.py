@@ -85,7 +85,7 @@ class DARPRouteExtractor:
 
         routes = {r: [] for r in R}
         for (r, i, j) in y.keys():
-            if y[r, i, j].X > 0.5:
+            if y[r, i, j].X == 1:
                 routes[r].append((i, j))
 
         for r in R:

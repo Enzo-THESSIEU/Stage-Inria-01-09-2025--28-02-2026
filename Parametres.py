@@ -711,10 +711,10 @@ class DARPDataBuilder:
     
 if __name__ == "__main__":
     builder = DARPDataBuilder(
-        duplicate_transfers=False,
+        duplicate_transfers=True,
         arc_elimination=True,
         ev_constraints=False,
-        use_imjn=True,
+        use_imjn=False,
         MoPS=False
     )
     sets, params = builder.build()
@@ -738,5 +738,10 @@ if __name__ == "__main__":
             print(arc)
     # print("N", sets['N'])
     # print("Departures", params['Departures'])
+
+    DAR_arcs = {(i,j) for (i,j) in sets['A'] if not (i in sets['C'] and j in sets['C'])}
+    request_arcs = {(i,j) for (i,j) in DAR_arcs if not (i == sets['zeroDepot'] or j == sets['endDepot'])}
+    for (i, j) in request_arcs:
+        print(i, j)
 
 

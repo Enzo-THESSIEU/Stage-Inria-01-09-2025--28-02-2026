@@ -44,7 +44,7 @@ class DARPConstraintBuilder:
         x = self.m.addVars(K, DAR_arcs, vtype=gb.GRB.BINARY, name="x")   # vehicle arcs
 
         # Passenger flow
-        y = self.m.addVars(R, request_arcs, vtype=gb.GRB.CONTINUOUS, lb=0, ub=1.0, name="y")
+        y = self.m.addVars(R, A, vtype=gb.GRB.CONTINUOUS, lb=0, ub=1.0, name="y")
         # Node timing variables
         T_node = self.m.addVars(N, vtype=gb.GRB.CONTINUOUS, name="T_node")
         T_veh  = self.m.addVars(K, vtype=gb.GRB.CONTINUOUS, name="T_veh")
@@ -93,6 +93,70 @@ class DARPConstraintBuilder:
         self.vars_ = {"x": x, "v": v, "y": y, "z": z, "T_node": T_node, "T_veh": T_veh, "D_node": D_node, "a": a, "B_node": B_node, "E_node": E_node}
         return self.vars_
 
+    # def define_variables(self):
+
+    #         """
+    #         Define decision variables for the IDARP model, adapting to:
+    #         - imjn artificial nodes (i,m)
+    #         - timetabled departures (with z[d,i,j])
+    #         - EV constraints (battery and charging)
+    #         - variable substitution (link x and v)
+    #         """
+
+    #         nodes, N, P, D, C, F, R, K, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
+
+    #         Departures = self.params.get("Departures", None)
+
+    #         ### --- Original variables ---
+    #         # Vehicle routing arc variables
+    #         x = self.m.addVars(K, A, vtype=gb.GRB.BINARY, name="x")   # vehicle arcs
+    #         # Passenger flow
+    #         y = self.m.addVars(R, A, vtype=gb.GRB.CONTINUOUS, lb=0, name="y")
+    #         # Node timing variables
+    #         T_node = self.m.addVars(N, vtype=gb.GRB.CONTINUOUS, name="T_node")
+    #         T_veh  = self.m.addVars(K, vtype=gb.GRB.CONTINUOUS, name="T_veh")
+    #         D_node = self.m.addVars(N, vtype=gb.GRB.CONTINUOUS, name="D_node")
+
+    #         ### --- Developments ---
+    #         # Optional variables
+    #         v, a, B_node, E_node = None, None, None, None
+    #         z = {}
+
+    #         # Variable Substitution
+    #         if self.variable_substitution:
+    #             v = self.m.addVars(A, vtype=gb.GRB.BINARY, name="v")      # DAR arcs
+
+    #         # Transfer / fixed-route arcs
+    #         z = {}
+    #         if self.timetabled_departures and Departures is not None:
+    #             # Timetabled departures case
+    #             for (i, j) in A:
+    #                 if i in C and j in C and (self.base(i), self.base(j)) in Departures:
+    #                     for d in Departures[(self.base(i), self.base(j))]:
+    #                         z[(d, i, j)] = self.m.addVar(vtype=gb.GRB.BINARY, name=f"z[{d},{i},{j}]")
+    #                 # Artificial node marker (used in some strengthened formulations)
+
+    #         if self.use_imjn:
+    #             a = self.m.addVars(N, vtype=gb.GRB.BINARY, name="a")
+
+    #         elif C:  
+    #             # Transfer Original Modeling
+    #             for i in C:
+    #                 for j in C:
+    #                     z[(i, j)] = self.m.addVar(vtype=gb.GRB.BINARY, name=f"z[{i},{j}]")
+
+    #         # EV-specific variables
+    #         if self.ev_constraints:
+    #             B_node = self.m.addVars(N, vtype=gb.GRB.CONTINUOUS, name="B_node")  # battery SOC
+    #             E_node = self.m.addVars(F, vtype=gb.GRB.CONTINUOUS, name="E_node")  # recharge time
+
+    #         return {
+    #             "x": x, "v": v, "y": y, "z": z,
+    #             "T_node": T_node, "T_veh": T_veh, "D_node": D_node,
+    #             "a": a, "B_node": B_node, "E_node": E_node
+    #         }
+
+
     # === Objective ===
     def set_objective(self, w = [1,0,0,0]):
         nodes, N, P, D, C, F, R, K, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
@@ -105,7 +169,7 @@ class DARPConstraintBuilder:
 
         if self.variable_substitution: f1 = gb.quicksum(cij[(self.base(i),self.base(j))] * v[i,j] for (i,j) in v.keys())
 
-        else: f1 = gb.quicksum(cij[self.base(i), self.base(j)] * x[k,i,j] for k in K for (k,i,j) in x.keys())
+        else: f1 = gb.quicksum(cij[self.base(i), self.base(j)] * x[k,i,j] for (k,i,j) in x.keys())
 
         if self.MoPS:
             D_M = self.sets['D_M']
@@ -161,7 +225,7 @@ class DARPConstraintBuilder:
             # (3) Depot departure: each vehicle leaves at most once
             for k in K:
                 self.m.addConstr(
-                    gb.quicksum(x[k, zeroDepot_node, j] for j in N if (zeroDepot_node, j) in v.keys()) <= 1,
+                    gb.quicksum(x[k, zeroDepot_node, j] for j in N if (k, zeroDepot_node, j) in x.keys()) <= 1,
                     name=f"∑_j x[k,{zeroDepot_node},j] ≤ 1  ∀k∈K"
                 )
 
@@ -220,10 +284,12 @@ class DARPConstraintBuilder:
                     gb.quicksum(x[k, i, j] for k in K for j in N if (k, i, j) in x.keys()) == 1,
                     name=f"∑_k∑_j x[k,{i},j] == 1  ∀i∈(P∪D)"
                 )
-                self.m.addConstr(
-                    gb.quicksum(x[k, j, i] for k in K for j in N if (k, j, i) in x.keys()) == 1,
-                    name=f"∑_k∑_j x[k,j,{i}] == 1  ∀i∈(P∪D)"
-                )
+                # self.m.addConstr(
+                #     gb.quicksum(x[k, j, i] for k in K for j in N if (k, j, i) in x.keys()) == 1,
+                #     name=f"∑_k∑_j x[k,j,{i}] == 1  ∀i∈(P∪D)"
+                # )
+
+            #################################################################################################################################################################
 
             # A transfer node can be visited at most once
             # for i in C:
@@ -478,11 +544,13 @@ class DARPConstraintBuilder:
 
             # (10) Time consistency between service nodes
             for (i, j) in A:
-                if not (i in C and j in C):
-                    self.m.addConstr(
-                        T_node[j] >= T_node[i] + di[self.base(i)] + tij[(self.base(i), self.base(j))] - M*(1 - gb.quicksum(x[k, i, j] for k in K)),
-                        name=f"T[{j}] ≥ T[{i}] + d[{self.base(i)}] + t[{self.base(i)},{self.base(j)}] - M(1 - ∑_k x[k,{i},{j}])"
-                    )
+                # if not (i in C and j in C):
+                self.m.addConstr(
+                    T_node[j] >= T_node[i] + di[self.base(i)] + tij[(self.base(i), self.base(j))] - M*(1 - gb.quicksum(x[k, i, j] for k in K if (k, i, j) in x.keys())),
+                    name=f"T[{j}] ≥ T[{i}] + d[{self.base(i)}] + t[{self.base(i)},{self.base(j)}] - M(1 - ∑_k x[k,{i},{j}])"
+                )
+
+            ######################################################################################################################################################
 
             # (11) Transfer route timing for Cr requests
             for r in R:
@@ -520,12 +588,22 @@ class DARPConstraintBuilder:
                     )
 
             # (14) Cumulative duration D tracking
-            for (i, j) in A:
-                if not (i in C and j in C):
-                    self.m.addConstr(
-                        D_node[j] >= D_node[i] + di[self.base(i)] + tij[(self.base(i), self.base(j))] - M*(1 - gb.quicksum(x[k, i, j] for k in K)),
-                        name=f"D[{j}] ≥ D[{i}] + d[{self.base(i)}] + t[{self.base(i)},{self.base(j)}] - M(1 - ∑_k x[k,{i},{j}])"
-                    )
+            # for (i, j) in A:
+            #     if not (i in C and j in C):
+            #         self.m.addConstr(
+            #             D_node[j] >= D_node[i] + di[self.base(i)] + tij[(self.base(i), self.base(j))] - M*(1 - gb.quicksum(x[k, i, j] for k in K)),
+            #             name=f"D[{j}] ≥ D[{i}] + d[{self.base(i)}] + t[{self.base(i)},{self.base(j)}] - M(1 - ∑_k x[k,{i},{j}])"
+            #         )
+
+            for i in N:
+                for j in N:
+                    if (i,j) in A:
+                        self.m.addConstr(
+                            D_node[j] >= D_node[i] + di[self.base(i)] + tij[self.base(i),self.base(j)] - M*(1 - gb.quicksum(x[k,i,j] for k in K if (k, i, j) in x.keys())),
+                            name=f"D_link[{i},{j}]"
+                        )
+
+            #################################################################################################################################################################################################
 
             # (15) Route duration limit
             for i in N:
@@ -551,12 +629,19 @@ class DARPConstraintBuilder:
         v, x = self.vars_["v"], self.vars_["x"]
         zeroDepot_node = zeroDepot
 
-        for (i, j) in A:
-            if not (i in C and j in C):
-                self.m.addConstr(
-                    v[i, j] == gb.quicksum(x[k, i, j] for k in K),
-                    name=f"v[{i},{j}] = ∑_k x[k,{i},{j}]  ∀(i,j)∈A, i≠{zeroDepot_node}"
-                )
+        # for (i, j) in A:
+        #     if not (i in C and j in C):
+        #         self.m.addConstr(
+        #             v[i, j] == gb.quicksum(x[k, i, j] for k in K),
+        #             name=f"v[{i},{j}] = ∑_k x[k,{i},{j}]  ∀(i,j)∈A, i≠{zeroDepot_node}"
+        #         )
+
+        for (i,j) in A:
+            if i != zeroDepot_node:
+                if (i,j) in v.keys():
+                    self.m.addConstr(v[i,j] == gb.quicksum(x[k,i,j] for k in K))
+
+        #####################################################################################################################################################################################################
 
     def add_transfer_node_constraints(self):
         nodes, N, P, D, C, F, R, K, P_M, D_M, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets['P_M'], self.sets['D_M'], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
@@ -583,28 +668,39 @@ class DARPConstraintBuilder:
                     )
 
             # === CASE: Variable Substitution without Timetabled Departures ===
+            # else:
+            #     if Cr:
+            #         for r in R:
+            #             for i in Cr[r]:
+            #                 self.m.addConstr(
+            #                     gb.quicksum(v[j, i] for j in N if (j, i) in A and not j in C)
+            #                     ==
+            #                     gb.quicksum(
+            #                         z[(i, j)] + z[(j, i)]
+            #                         for j in Cr[r] if (i, j) in A
+            #                     ),
+            #                     name=(
+            #                         f"∑_j v[j,{i}] = ∑_j (z[{i},j] + z[j,{i}]) "
+            #                         f"∀i∈Cr[{r}], variable_substitution"
+            #                     )
+            #                 )
+
+            #         for r in R:
+            #             self.m.addConstr(
+            #                 gb.quicksum(v[i, j] for i in Cr[r] for j in N if (i, j) in A and not (i in C and j in C)) <= 2,
+            #                 name=f"∑_i∑_j v[i,j] ≤ 2  ∀i∈Cr[{r}]"
+            #             )
+
             else:
                 if Cr:
                     for r in R:
                         for i in Cr[r]:
                             self.m.addConstr(
-                                gb.quicksum(v[j, i] for j in N if (j, i) in A and not j in C)
-                                ==
-                                gb.quicksum(
-                                    z[(i, j)] + z[(j, i)]
-                                    for j in Cr[r] if (i, j) in A
-                                ),
-                                name=(
-                                    f"∑_j v[j,{i}] = ∑_j (z[{i},j] + z[j,{i}]) "
-                                    f"∀i∈Cr[{r}], variable_substitution"
-                                )
+                                gb.quicksum(v[j,i] for j in N if (j,i) in v.keys()) ==
+                                gb.quicksum(z[(i,j)] + z[(j,i)] for j in Cr[r] if (i,j) and (j,i) in z.keys())
                             )
-
                     for r in R:
-                        self.m.addConstr(
-                            gb.quicksum(v[i, j] for i in Cr[r] for j in N if (i, j) in A and not (i in C and j in C)) <= 2,
-                            name=f"∑_i∑_j v[i,j] ≤ 2  ∀i∈Cr[{r}]"
-                        )
+                        self.m.addConstr(gb.quicksum(v[i,j] for i in Cr[r] for j in N if (i,j) in v.keys()) <= 2)
 
         # === CASE: No Variable Substitution ===
         else:

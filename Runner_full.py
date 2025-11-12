@@ -244,7 +244,7 @@ class DARPExperimentRunner:
         print("=========================================================\n")
         print(route_debugging_data)
         print("=========================================================\n")
-        # print(debugging_data)
+        print(debugging_data)
         return result, debugging_data
 
 
