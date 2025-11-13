@@ -134,15 +134,17 @@ class DARPExperimentRunner:
                         # === ADD CUT to current LP relaxation ===
                         m.cbCut(expr >= 1)
                         # print(f"Added user cut for cluster {cluster}")
-                self.stop_when_optimal(m, where)
+                # self.stop_when_optimal(m, where)
 
 
             m.optimize(lp_callback)
         else:
-            m.optimize(lambda m, where: self.stop_when_optimal(m, where))
-            # m.optimize()
+            # m.optimize(lambda m, where: self.stop_when_optimal(m, where))
+            m.optimize()
 
-        write_model_verification_report(m = m, file_path="C:\\Users\\enzot\\Documents\\Césure\\1ère césure inria Lille\\Codes\\Stage-Inria-01-09-2025--28-02-2026\\test1_Flow_conservation_x.txt")
+
+
+        # write_model_verification_report(m = m, file_path="C:\\Users\\enzot\\Documents\\Césure\\1ère césure inria Lille\\Codes\\Stage-Inria-01-09-2025--28-02-2026\\test1_Flow_conservation_x.txt")
 
         end_cpu = t.process_time()
         end_wall = t.perf_counter()
@@ -154,10 +156,15 @@ class DARPExperimentRunner:
             print("⚠️ Model infeasible — writing IIS files...")
             m.computeIIS()
             m.write(f"{model_name}.ilp")
-            m.write(f"{model_name}.iis")
+            # m.write(f"{model_name}.iis")
             raise SystemExit("Model infeasible; IIS written.")
         
         print("var_sub: ", bool_params['variable_substitution'], "\n")
+
+        v = vars_['x']
+        for key, val in vars_['x'].items():
+            if key[0] == 4:
+                print(f"{key}", val.X)
 
         # === Extract routes ===
         extractor = DARPRouteExtractor(
@@ -168,23 +175,23 @@ class DARPExperimentRunner:
             options = bool_params
         )
 
-        # === Debugging tools ===
-        debugger = DARPDebuggingFunctions(m, vars_, data_sets, data_params, options = bool_params)
+        # # === Debugging tools ===
+        # debugger = DARPDebuggingFunctions(m, vars_, data_sets, data_params, options = bool_params)
 
-        # 1️⃣ Extract variable values
-        z_all, z_nonzero, y_r4, a_values, v_values_1, sum_v, x_values1 = debugger.extract_variable_values()
+        # # 1️⃣ Extract variable values
+        # z_all, z_nonzero, y_r4, a_values, v_values_1, sum_v, x_values1 = debugger.extract_variable_values()
 
-        # 2️⃣ Check passenger transfer balance
-        # wrong_sum_balance = debugger.check_transfer_balance(extractor)
+        # # 2️⃣ Check passenger transfer balance
+        # # wrong_sum_balance = debugger.check_transfer_balance(extractor)
 
-        # 3️⃣ Compute constraint balance
-        Constraint_val, Problems = debugger.compute_constraint_balance()
+        # # 3️⃣ Compute constraint balance
+        # Constraint_val, Problems = debugger.compute_constraint_balance()
 
-        # Flow Conservation
-        flow_conservation, problems = debugger.check_flow_conservation()
+        # # Flow Conservation
+        # flow_conservation, problems = debugger.check_flow_conservation()
 
-        # 4️⃣ Print and log Z-variable summary
-        debugger.print_z_variable_summary(model_name)
+        # # 4️⃣ Print and log Z-variable summary
+        # debugger.print_z_variable_summary(model_name)
 
         routedebugger = DARPRouteDebugging(
             m = m,
@@ -197,6 +204,40 @@ class DARPExperimentRunner:
         v1, v2 = routedebugger.extract_vehicle_route_final()
         r1, r2, r3, r4 = routedebugger.extract_request_route_final()
         z1 = routedebugger.extract_PT_route_final()
+
+
+        y = vars_['y']
+        y_keys = y.keys()
+
+        # Build sets correctly using ONLY data_sets
+        transfer_arcs = {
+            (i, j)
+            for (i, j) in data_sets['A']
+            if (i in data_sets['C'] and j in data_sets['C'])
+        }
+
+        DAR_arcs = {
+            (i, j)
+            for (i, j) in data_sets['A']
+            if (i, j) not in transfer_arcs
+        }
+
+        request_arcs = {
+            (i, j)
+            for (i, j) in DAR_arcs
+            if not (i == data_sets['zeroDepot'] or j == data_sets['endDepot'])
+        }
+
+        # for (i,j) in sorted(request_arcs, key=lambda x: x[0]):
+        #     print(i,j)
+
+        # Print y[r,i,j] > 0 for arcs NOT in transfer_arcs
+        # for (r, i, j) in sorted(y_keys, key=lambda x: x[1]):
+        #     if y[r, i, j].X > 1e-6 and (i, j) not in request_arcs:
+        #         print(r, i, j, y[r, i, j].X)
+
+
+
 
         # === Save main experiment results ===
         result = {
@@ -221,30 +262,31 @@ class DARPExperimentRunner:
 
         debugging_data = {
             # "All values of z": z_all,
-            "z_values_1": z_nonzero,
+            # "z_values_1": z_nonzero,
             # "v_values_1": v_values_1,
             # "sum obj function": sum_v,
             # "All values of y (req 4)": y_r4,
             # "sum_balance": wrong_sum_balance,
             # "a_values": a_values,
-            "Constraint_val": Constraint_val,
-            "Problems transfer Balance": Problems,
+            # "Constraint_val": Constraint_val,
+            # "Problems transfer Balance": Problems,
             # "x_values": x_values1,
             # "Flow Conservation": flow_conservation,
-            # "Problems": problems
+            # "Problems": problems,
+            # "y_keys" : y_keys,
         }
 
         # === Store both ===
         self.results.append(result)
         self.debugging_data = debugging_data  # or append to a list if you run multiple models
 
-        print(result)
+        # print(result)
         print("=========================================================\n")
         extractor.summarize()
         print("=========================================================\n")
         print(route_debugging_data)
         print("=========================================================\n")
-        print(debugging_data)
+        # print(debugging_data)
         return result, debugging_data
 
 
@@ -514,14 +556,14 @@ class DARPExperimentRunner:
 if __name__ == "__main__":
     TIME_LIMIT = 2 * 60 * 60
     bool_params_singular = {
-        "duplicate_transfers": True,
-        "arc_elimination": True,
+        "duplicate_transfers": False,
+        "arc_elimination": False,
         "variable_substitution": True,
-        "subtour_elimination": True,
-        "transfer_node_strengthening": True,
+        "subtour_elimination": False,
+        "transfer_node_strengthening": False,
         "ev_constraints": False,
-        "timetabled_departures": False,
-        "use_imjn": False,
+        "timetabled_departures": True,
+        "use_imjn": True,
         "MoPS": False
     }
 

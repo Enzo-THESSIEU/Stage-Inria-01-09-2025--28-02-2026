@@ -619,28 +619,28 @@ class destroy_operators:
 
 
 
-class LNS_IDARP:
-    def __init__(self, m , vars_, sets, params, **IDARPoptions, **LNSoptions):
-        self.m = m
-        self. vars_ = vars_
-        self.sets = sets
-        self.params = params
-        self.duplicate_transfers = IDARPoptions.get("duplicate_transfers", True)
-        self.arc_elimination = IDARPoptions.get("arc_elimination", True)
-        self.variable_substitution = IDARPoptions.get("variable_substitution", True)
-        self.subtour_elimination = IDARPoptions.get("subtour_elimination", True)
-        self.transfer_node_strengthening = IDARPoptions.get("transfer_node_strengthening", True)
-        self.ev_constraints = IDARPoptions.get("ev_constraints", False)
-        self.timetabled_departures = IDARPoptions.get("timetabled_departures", False)
-        self.use_imjn = IDARPoptions.get("use_imjn", False)
-        self.MoPS = IDARPoptions.get("MoPS", False)
-        self.iter = LNSoptions.get("iterations", 1)
+# class LNS_IDARP:
+#     def __init__(self, m , vars_, sets, params, **IDARPoptions, **LNSoptions):
+#         self.m = m
+#         self. vars_ = vars_
+#         self.sets = sets
+#         self.params = params
+#         self.duplicate_transfers = IDARPoptions.get("duplicate_transfers", True)
+#         self.arc_elimination = IDARPoptions.get("arc_elimination", True)
+#         self.variable_substitution = IDARPoptions.get("variable_substitution", True)
+#         self.subtour_elimination = IDARPoptions.get("subtour_elimination", True)
+#         self.transfer_node_strengthening = IDARPoptions.get("transfer_node_strengthening", True)
+#         self.ev_constraints = IDARPoptions.get("ev_constraints", False)
+#         self.timetabled_departures = IDARPoptions.get("timetabled_departures", False)
+#         self.use_imjn = IDARPoptions.get("use_imjn", False)
+#         self.MoPS = IDARPoptions.get("MoPS", False)
+#         self.iter = LNSoptions.get("iterations", 1)
     
-    def do_neighbourhood_search(self, s):
-        total_iter = 0
-        s1 = s
-        while total_iter <= self.iter:
-            s1 = self.destroy_heuristic(self, s1)
+#     def do_neighbourhood_search(self, s):
+#         total_iter = 0
+#         s1 = s
+#         while total_iter <= self.iter:
+#             s1 = self.destroy_heuristic(self, s1)
 
 
         

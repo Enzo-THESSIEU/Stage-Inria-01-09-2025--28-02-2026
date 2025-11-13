@@ -330,6 +330,10 @@ class DARPDataBuilder:
                     for a, d in Departures[(right_terminal, transfer_nodes[i])].items()
                 }
 
+        Departures[(10,10)] = {a: interval * a for a in range(int(n_intervals))}
+        Departures[(11,11)] = {a: interval * a for a in range(int(n_intervals))}
+        Departures[(12,12)] = {a: interval * a for a in range(int(n_intervals))}
+
         return Departures
 
     ##### Arc Elimination #####
@@ -688,7 +692,7 @@ class DARPDataBuilder:
                 n=n, pair_pi_di=pair_pi_di, pair_pi_di_M=pair_pi_di_M, C=C, R=R)
             
         tij_keys = params['tij'].keys()
-        sets["A"] = {(i, j) for i in N for j in N if (self.base(i), self.base(j)) in tij_keys and self.base(i) != self.base(j)}
+        sets["A"] = {(i, j) for i in N for j in N if (self.base(i), self.base(j)) in tij_keys}
 
         if self.duplicate_transfers:
             params["Cr"] = Cr 
@@ -739,9 +743,13 @@ if __name__ == "__main__":
     # print("N", sets['N'])
     # print("Departures", params['Departures'])
 
-    DAR_arcs = {(i,j) for (i,j) in sets['A'] if not (i in sets['C'] and j in sets['C'])}
+    transfer_arcs = {(i,j) for (i,j) in sets['A'] if (i in sets['C'] and j in sets['C'])}
+    DAR_arcs = {(i,j) for (i,j) in sets['A'] if (i,j) not in transfer_arcs}
     request_arcs = {(i,j) for (i,j) in DAR_arcs if not (i == sets['zeroDepot'] or j == sets['endDepot'])}
     for (i, j) in request_arcs:
+        t = 1
+        # print(i, j)
+    DAR_depot_arcs = {(i, j) for (i, j) in DAR_arcs if (i, j) not in request_arcs}
+    for (i, j) in transfer_arcs:
         print(i, j)
-
 
