@@ -12,10 +12,10 @@ class DARPModelBuilder:
 
         if sets is None or params is None:
             data_builder = DARPDataBuilder(
-                duplicate_transfers=options.get("duplicate_transfers", True),
-                arc_elimination=options.get("arc_elimination", True),
-                ev_constraints=options.get("ev_constraints", False),
-                use_imjn=options.get("use_imjn", False)
+                duplicate_transfers=options.get("duplicate_transfers"),
+                arc_elimination=options.get("arc_elimination"),
+                ev_constraints=options.get("ev_constraints"),
+                use_imjn=options.get("use_imjn")
             )
             self.sets, self.params = data_builder.build()
         else:
@@ -26,15 +26,15 @@ class DARPModelBuilder:
 
     def build(self):
         # Unpack options
-        duplicate_transfers = self.options.get("duplicate_transfers", True)
-        arc_elimination = self.options.get("arc_elimination", True)
-        variable_substitution = self.options.get("variable_substitution", True)
-        subtour_elimination = self.options.get("subtour_elimination", True)
-        transfer_node_strengthening = self.options.get("transfer_node_strengthening", True)
-        ev_constraints = self.options.get("ev_constraints", False)
-        timetabled_departures = self.options.get("timetabled_departures", False)
-        use_imjn = self.options.get("use_imjn", False)
-        MoPS = self.options.get("MoPS", False)
+        duplicate_transfers = self.options.get("duplicate_transfers")
+        arc_elimination = self.options.get("arc_elimination")
+        variable_substitution = self.options.get("variable_substitution")
+        subtour_elimination = self.options.get("subtour_elimination")
+        transfer_node_strengthening = self.options.get("transfer_node_strengthening")
+        ev_constraints = self.options.get("ev_constraints")
+        timetabled_departures = self.options.get("timetabled_departures")
+        use_imjn = self.options.get("use_imjn")
+        MoPS = self.options.get("MoPS")
         clusters = []
 
         # === Step 2: Build Model ===
@@ -54,7 +54,8 @@ class DARPModelBuilder:
             transfer_node_strengthening = transfer_node_strengthening,
             ev_constraints = ev_constraints,
             timetabled_departures = timetabled_departures,
-            use_imjn = use_imjn
+            use_imjn = use_imjn,
+            MoPS=MoPS,
         )
 
         # === Step 4: Define Variables ===
@@ -65,7 +66,7 @@ class DARPModelBuilder:
         constraint_builder.variable_substitution = variable_substitution
         constraint_builder.timetabled_departures = timetabled_departures
         if MoPS:
-            w = [0, 0.5, 0.5, 0]
+            w = [1/3, 0, 1/3, 1/3]
         else:
             w=[1,0,0,0]
         constraint_builder.set_objective(w)

@@ -554,6 +554,24 @@ class DARPDataBuilder:
                 [163, 159, 301, 270,  39, 329,  34,  57, 316, 304, 137, 163, 283, 142,   0],
             ], dtype=float)
 
+            # t = np.array([
+            #     [  0,  23, 173, 131, 195, 170, 129, 160, 153, 157,  80,   0, 120,  21, 163],
+            #     [ 23,   0, 166, 123, 173, 179, 125, 138, 168, 159, 103,  23, 135,  26, 159],
+            #     [173, 166,   0,  57, 289,  41, 268, 254,  79,  59, 253, 173,  57, 191, 301],
+            #     [131, 123,  57,   0, 258,  72, 236, 222,  60,  63, 211, 131,  29, 148, 270],
+            #     [195, 173, 289, 258,   0, 318,  73,  35, 306, 293, 115, 195, 273, 174,  39],
+            #     [170, 179,  41,  72, 318,   0, 296, 282,  53,  55, 250, 170,  51, 191, 329],
+            #     [129, 125, 268, 236,  73, 296,   0,  48, 282, 270, 128, 129, 248, 108,  34],
+            #     [160, 138, 254, 222,  35, 282,  48,   0, 271, 257,  80, 160, 237, 139,  57],
+            #     [153, 168,  79,  60, 306,  53, 282, 271,   0,  64, 233, 153,  35, 174, 316],
+            #     [157, 159,  59,  63, 293,  55, 270, 257,  64,   0, 237, 157,  43, 176, 304],
+            #     [ 80, 103, 253, 211, 115, 250, 128,  80, 233, 237,   0,  80, 200, 101, 137],
+            #     [  0,  23, 173, 131, 195, 170, 129, 160, 153, 157,  80,   0, 120,  21, 163],
+            #     [120, 135,  57,  29, 273,  51, 248, 237,  35,  43, 200, 120,   0, 1, 1],
+            #     [ 21,  26, 191, 148, 174, 191, 108, 139, 174, 176, 101,  21, 1,   0, 1],
+            #     [163, 159, 301, 270,  39, 329,  34,  57, 316, 304, 137, 163, 1, 1,   0],
+            # ], dtype=float)
+
             nodes = np.array([
                 [0, "depot0", "", 0, 86400, 0, 0],
                 [11, "depot1", "", 0, 86400, 0, 0],
@@ -719,37 +737,37 @@ if __name__ == "__main__":
         arc_elimination=True,
         ev_constraints=False,
         use_imjn=False,
-        MoPS=False
+        MoPS=True
     )
     sets, params = builder.build()
     print("✅ Build complete.")
-    # print("Node definition:", sets['nodes'])
-    # print("Number of nodes:", len(sets["N"]))
-    print("Number of arcs:", len(sets["A"]))
-    print("Travel time dict size:", len(params["tij"]))
+    print("Node definition:", sets['nodes'])
+    print("Number of nodes:", len(sets["N"]))
+    # print("Number of arcs:", len(sets["A"]))
+    # print("Travel time dict size:", len(params["tij"]))
     # print("f_ir:", params['fi_r'])
     # print("tij: ", params['tij'])
     # print("ei:", params['ei'])
     # print("li:", params['li'])
-    # print("C", sets['C'])
-    # print("A", sets['A'])
-    tij_keys = params['tij'].keys()
-    for key in tij_keys:
-        if key[0] == 0:
-            print(key)
-    for arc in sets['A']:
-        if arc[0] == (0,1):
-            print(arc)
+    print("C", sets['C'])
+    print("A", sets['A'])
+    # tij_keys = params['tij'].keys()
+    # for key in tij_keys:
+    #     if key[0] == 0:
+    #         print(key)
+    # for arc in sets['A']:
+    #     if arc[0] == (0,1):
+    #         print(arc)
     # print("N", sets['N'])
     # print("Departures", params['Departures'])
 
-    transfer_arcs = {(i,j) for (i,j) in sets['A'] if (i in sets['C'] and j in sets['C'])}
-    DAR_arcs = {(i,j) for (i,j) in sets['A'] if (i,j) not in transfer_arcs}
-    request_arcs = {(i,j) for (i,j) in DAR_arcs if not (i == sets['zeroDepot'] or j == sets['endDepot'])}
-    for (i, j) in request_arcs:
-        t = 1
-        # print(i, j)
-    DAR_depot_arcs = {(i, j) for (i, j) in DAR_arcs if (i, j) not in request_arcs}
-    for (i, j) in transfer_arcs:
-        print(i, j)
+    # transfer_arcs = {(i,j) for (i,j) in sets['A'] if (i in sets['C'] and j in sets['C'])}
+    # DAR_arcs = {(i,j) for (i,j) in sets['A'] if (i,j) not in transfer_arcs}
+    # request_arcs = {(i,j) for (i,j) in DAR_arcs if not (i == sets['zeroDepot'] or j == sets['endDepot'])}
+    # for (i, j) in request_arcs:
+    #     t = 1
+    #     # print(i, j)
+    # DAR_depot_arcs = {(i, j) for (i, j) in DAR_arcs if (i, j) not in request_arcs}
+    # for (i, j) in transfer_arcs:
+    #     print(i, j)
 

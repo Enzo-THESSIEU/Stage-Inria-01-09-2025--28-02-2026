@@ -114,7 +114,8 @@ class DARPExperimentRunner:
                     for cluster in clusters:
                         if len(cluster) <= 1:
                             continue  # skip singletons
-
+                        inflow = 0
+                        outflow = 0
                         if heuristic.variable_substitution:
                             expr = gb.quicksum(
                                 v[i, j]
@@ -122,6 +123,10 @@ class DARPExperimentRunner:
                                 for j in N
                                 if j not in cluster and (i, j) in v.keys()
                             )
+                                                    
+                            for node in cluster:
+                                inflow += sum(m.cbGetNodeRel(m._v[i, node]) for i in N if (i, node) in v.keys())
+                                outflow += sum(m.cbGetNodeRel(m._v[node,i]) for i in N if (node, i) in v.keys())
                         else:
                             expr = gb.quicksum(
                                 x[k, i, j]
@@ -130,12 +135,17 @@ class DARPExperimentRunner:
                                 for j in N
                                 if j not in cluster and (k, i, j) in x.keys()
                             )
+                            for node in cluster:
+                                inflow += sum(m.cbGetNodeRel(m._x[k, i, node]) for k in K for i in N if (k, i ,node) in x.keys())
+                                outflow += sum(m.cbGetNodeRel(m._x[k, node,i]) for k in K for i in N if (k, node, i) in x.keys()) 
+                        
+                        # if inflow > 1 and outflow > 1:
+                        #     print("Cluster with inflow and outflow above 1", cluster)
 
                         # === ADD CUT to current LP relaxation ===
                         m.cbCut(expr >= 1)
                         # print(f"Added user cut for cluster {cluster}")
                 # self.stop_when_optimal(m, where)
-
 
             m.optimize(lp_callback)
         else:
@@ -556,17 +566,18 @@ class DARPExperimentRunner:
 if __name__ == "__main__":
     TIME_LIMIT = 2 * 60 * 60
     bool_params_singular = {
-        "duplicate_transfers": False,
-        "arc_elimination": False,
+        "duplicate_transfers": True,
+        "arc_elimination": True,
         "variable_substitution": True,
         "subtour_elimination": False,
-        "transfer_node_strengthening": False,
+        "transfer_node_strengthening": True,
         "ev_constraints": False,
-        "timetabled_departures": True,
-        "use_imjn": True,
-        "MoPS": False
+        "timetabled_departures": False,
+        "use_imjn": False,
+        "MoPS": True
     }
 
     runner = DARPExperimentRunner(time_limit=TIME_LIMIT)
     runner.run_single_model(bool_params_singular)
     # runner.run_all_combinations()
+

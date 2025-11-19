@@ -37,7 +37,16 @@ class DARPConstraintBuilder:
 
         ### --- Original variables ---
         # Vehicle routing arc variables
-        transfer_arcs = {(i,j) for i in C for j in C}
+        if self.duplicate_transfers:
+            transfer_arcs = {(0,0)}
+            for r in R:
+                for i in Cr[r]:
+                    for j in Cr[r]:
+                        transfer_arcs.add((i,j))
+            transfer_arcs.remove((0,0))
+        else:
+            transfer_arcs = {(i,j) for i in C for j in C}
+
         DAR_arcs = {(i,j) for (i,j) in A if (i,j) not in transfer_arcs}
         request_arcs = {(i,j) for (i,j) in DAR_arcs if not (i == zeroDepot or j == endDepot)}
 
@@ -165,16 +174,18 @@ class DARPConstraintBuilder:
         x, v, T_node = self.vars_['x'], self.vars_["v"], self.vars_['T_node']
         z = self.vars_['z']
 
+        if self.variable_substitution: f1 = gb.quicksum(cij[(self.base(i),self.base(j))] * v[i,j] for (i,j) in v.keys())
+        else: f1 = gb.quicksum(cij[self.base(i), self.base(j)] * x[k,i,j] for (k,i,j) in x.keys())
+
         f2 = gb.quicksum(T_node[d] - T_node[p] - di[self.base(p)] - tij[self.base(p),self.base(d)] for p,d in pair_pi_di.items())
         f3 = gb.quicksum((T_node[d] - T_node[p] - di[self.base(p)]) / tij[self.base(p),self.base(d)] for p,d in pair_pi_di.items())
 
-        if self.variable_substitution: f1 = gb.quicksum(cij[(self.base(i),self.base(j))] * v[i,j] for (i,j) in v.keys())
-
-        else: f1 = gb.quicksum(cij[self.base(i), self.base(j)] * x[k,i,j] for (k,i,j) in x.keys())
-
         if self.MoPS:
             D_M = self.sets['D_M']
-            f4 = gb.quicksum(v[i,j] for i in D_M for j in N if (i,j) in v.keys())
+            if self.variable_substitution:
+                f4 = gb.quicksum(v[i,j] for i in D_M for j in N if (i,j) in v.keys())
+            else:
+                f4 = gb.quicksum(x[k,i,j] for k in K for i in D_M for j in N if (k,i,j) in x.keys())
         else: f4 = 0
 
         w.append(100)
@@ -239,13 +250,24 @@ class DARPConstraintBuilder:
                     )
 
             # (5) Flow conservation at all non-depot nodes
-            for i in (P + D + C):
-                self.m.addConstr(
-                    gb.quicksum(v[j, i] for j in N if (j, i) in v.keys())
-                    - gb.quicksum(v[i, j] for j in N if (i, j) in v.keys())
-                    == 0,
-                    name=f"∑_j v[j,i] - ∑_j v[i,j] = 0  ∀i∈(P∪D∪C)"
-                )
+            for i in N:
+                if i not in [zeroDepot_node, endDepot_node]:
+                    self.m.addConstr(
+                        gb.quicksum(v[j, i] for j in N if (j, i) in v.keys())
+                        - gb.quicksum(v[i, j] for j in N if (i, j) in v.keys())
+                        == 0,
+                        name=f"∑_j v[j,i] - ∑_j v[i,j] = 0  ∀i∈(P∪D∪C)"
+                    )
+
+            for k in K:
+                for i in N:
+                    if i not in [zeroDepot_node, endDepot_node]:
+                        self.m.addConstr(
+                            gb.quicksum(x[k, j, i] for j in N if (k, j, i) in x.keys())
+                            - gb.quicksum(x[k, i, j] for j in N if (k, i, j) in x.keys())
+                            == 0,
+                            name=f"∑_j x[{k},j,i] - ∑_j x[{k},i,j] = 0  ∀i∈(P∪D∪C),∀k"
+                        )
 
             # (6) All vehicles must end at depot
             self.m.addConstr(
@@ -312,13 +334,14 @@ class DARPConstraintBuilder:
 
             # (3') Vehicle flow conservation
             for k in K:
-                for i in (P + D + C):
-                    self.m.addConstr(
-                        gb.quicksum(x[k, j, i] for j in N if (k, j, i) in x.keys())
-                        - gb.quicksum(x[k, i, j] for j in N if (k, i, j) in x.keys())
-                        == 0,
-                        name=f"∑_j x[{k},j,i] - ∑_j x[{k},i,j] = 0  ∀i∈(P∪D∪C),∀k"
-                    )
+                for i in N:
+                    if i not in [zeroDepot_node, endDepot_node]:
+                        self.m.addConstr(
+                            gb.quicksum(x[k, j, i] for j in N if (k, j, i) in x.keys())
+                            - gb.quicksum(x[k, i, j] for j in N if (k, i, j) in x.keys())
+                            == 0,
+                            name=f"∑_j x[{k},j,i] - ∑_j x[{k},i,j] = 0  ∀i∈(P∪D∪C),∀k"
+                        )
 
             # (4') Each vehicle ends at depot
             for k in K:
@@ -392,15 +415,27 @@ class DARPConstraintBuilder:
         # === ELSE: Non-timetabled version ===
         else:
             # (1') Passenger balance for non-transfer nodes
-            for r in R:
-                for i in N:
-                    if i not in Cr[r]:
-                        sum_pickup  = gb.quicksum(y[r, i, j] for j in N if (r, i, j) in y.keys())
-                        sum_dropoff = gb.quicksum(y[r, j, i] for j in N if (r, j, i) in y.keys())
-                        self.m.addConstr(
-                            sum_pickup - sum_dropoff == fi_r[r, i],
-                            name=f"∑_j y[{r},i,j] - ∑_j y[{r},j,i] = fi_r[{r},{i}]  ∀i∉C"
-                        )
+            if self.MoPS:
+                for r in R:
+                    for i in N:
+                        if i not in Cr[r]:
+                            sum_pickup  = gb.quicksum(y[r, i, j] for j in N if (r, i, j) in y.keys())
+                            sum_dropoff = gb.quicksum(y[r, j, i] for j in N if (r, j, i) in y.keys())
+                            self.m.addConstr(
+                                sum_pickup - sum_dropoff == fi_r[r, i],
+                                name=f"∑_j y[{r},i,j] - ∑_j y[{r},j,i] = fi_r[{r},{i}]  ∀i∉C"
+                            )
+            
+            else:
+                for r in R:
+                    for i in N:
+                        if i not in Cr[r]:
+                            sum_pickup  = gb.quicksum(y[r, i, j] for j in N if (r, i, j) in y.keys())
+                            sum_dropoff = gb.quicksum(y[r, j, i] for j in N if (r, j, i) in y.keys())
+                            self.m.addConstr(
+                                sum_pickup - sum_dropoff == fi_r[r, i],
+                                name=f"∑_j y[{r},i,j] - ∑_j y[{r},j,i] = fi_r[{r},{i}]  ∀i∉C"
+                            )
 
             # (2') Passenger balance for transfer nodes (without timetabled departures)
             if Cr:
@@ -1030,44 +1065,87 @@ class DARPConstraintBuilder:
             # -------------------------------
             # Non-IMJN version (simple nodes)
             # -------------------------------
+            if self.MoPS:
+                vehicle1_arcs = [
+                    (0, 1),
+                    (1, 3),
+                    (3, 2),
+                    (2, 5),
+                    (5, 15),
+                    (15, 18),
+                    (18, 21),
+                    (21, 8),
+                    (8, 11),
+                ]
+
+                # Vehicle 2
+                vehicle2_arcs = [
+                    (0, 9),
+                    (9, 10),
+                    (10, 16),
+                    (16, 19),
+                    (19, 7),
+                    (7, 4),
+                    (4, 6),
+                    (6, 22),
+                    (22, 11),
+                ]
+
+                # Requests
+                request_arcs = {
+                    1: [(1, 3), (3, 2), (2, 5)],
+                    2: [(2, 5), (5, 15), (16, 19), (19, 7), (7, 4), (4, 6)],
+                    3: [(3, 2), (2, 5), (5, 15), (15, 18), (19, 7)],
+                    4: [(4, 6), (6, 22), (21, 8)],
+                    5: [(9,10)]
+                }
+
+                transfer_arcs = [
+                    (15, 16),
+                    (18, 19),
+                    (22, 21)
+                ]
+
+            else:
 
             # Vehicle 1
-            vehicle1_arcs = [
-                (0, 1),
-                (1, 3),
-                (3, 2),
-                (2, 5),
-                (5, 13),
-                (13, 16),
-                (16, 19),
-                (19, 8),
-                (8, 9),
-            ]
+                vehicle1_arcs = [
+                    (0, 1),
 
-            # Vehicle 2
-            vehicle2_arcs = [
-                (0, 14),
-                (14, 17),
-                (17, 7),
-                (7, 4),
-                (4, 6),
-                (6, 20),
-                (20, 9),
-            ]
+                    (1, 3),
+                    (3, 2),
+                    (2, 5),
+                    (5, 13),
+                    (13, 16),
+                    (16, 19),
+                    (19, 8),
+                    (8, 9),
+                ]
 
-            # Requests
-            request_arcs = {
-                1: [(1, 3), (3, 2), (2, 5)],
-                2: [(2, 5), (5, 13), (14, 17), (17, 7), (7, 4), (4, 6)],
-                3: [(3, 2), (2, 5), (5, 13), (13, 16), (17, 7)],
-                4: [(4, 6), (6, 20), (19, 8)],
-            }
+                # Vehicle 2
+                vehicle2_arcs = [
+                    (0, 14),
+                    (14, 17),
+                    (17, 7),
+                    (7, 4),
+                    (4, 6),
+                    (6, 20),
+                    (20, 9),
+                ]
 
-            transfer_arcs = [
-                (13, 14),
-                (16, 17),
-                (20, 19)
-            ]
+                # Requests
+                request_arcs = {
+                    1: [(1, 3), (3, 2), (2, 5)],
+                    2: [(2, 5), (5, 13), (14, 17), (17, 7), (7, 4), (4, 6)],
+                    3: [(3, 2), (2, 5), (5, 13), (13, 16), (17, 7)],
+                    4: [(4, 6), (6, 20), (19, 8)],
+                }
+
+                transfer_arcs = [
+                    (13, 14),
+                    (16, 17),
+                    (20, 19)
+                ]
 
         # --- Fix x ---
         for k, arcs in enumerate([vehicle1_arcs, vehicle2_arcs]):

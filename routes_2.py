@@ -152,17 +152,17 @@ class DARPRouteExtractor:
 
     def extract_PT_routes(self):
         """Extract all used PT arcs z[d,i,j]."""
-        z = self.vars_.get("z", {})
-        TD, TA = self.params.get("TD", {}), self.params.get("TA", {})
+        z = self.vars_["z"]
+        T_node = self.vars_["T_node"]
 
         used_PT = []
         for key in z.keys():
-            if len(key) == 3:
-                d, i, j = key
-                if z[d, i, j].X > 0.5:
-                    dep = TD.get((self.base(i), self.base(j), d))
-                    arr = TA.get((self.base(i), self.base(j), d))
-                    used_PT.append(((i, j), d, dep, arr))
+            if z[key].X > 0.5:
+                i = key[0]
+                j = key[1]
+                dep = T_node[i]
+                arr = T_node[j]
+                used_PT.append(((i, j), dep, arr))
         return used_PT
     
     def summarize(self):
@@ -191,7 +191,7 @@ class DARPRouteExtractor:
         if not pt_routes:
             print("No PT arcs used.")
         else:
-            for ((i, j), d, dep, arr) in pt_routes:
+            for ((i, j), dep, arr) in pt_routes:
                 print(f"{i}->{j} (dep={dep}, arr={arr})")
 
         return veh_routes, req_routes, pt_routes
