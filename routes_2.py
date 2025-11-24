@@ -168,7 +168,7 @@ class DARPRouteExtractor:
     def summarize(self):
         veh_routes, arcs_use_k = self.extract_vehicle_routes()
         req_routes = self.extract_request_routes()
-        pt_routes = self.extract_PT_routes()
+        # pt_routes = self.extract_PT_routes()
 
         print("\n=== VEHICLE ROUTES ===")
         for k, route in veh_routes.items():
@@ -187,14 +187,14 @@ class DARPRouteExtractor:
             else:
                 print(f"Request {r}: [no assigned path]")
 
-        print("\n=== PUBLIC TRANSPORT ARCS USED ===")
-        if not pt_routes:
-            print("No PT arcs used.")
-        else:
-            for ((i, j), dep, arr) in pt_routes:
-                print(f"{i}->{j} (dep={dep}, arr={arr})")
+        # print("\n=== PUBLIC TRANSPORT ARCS USED ===")
+        # if not pt_routes:
+        #     print("No PT arcs used.")
+        # else:
+        #     for ((i, j), dep, arr) in pt_routes:
+        #         print(f"{i}->{j} (dep={dep}, arr={arr})")
 
-        return veh_routes, req_routes, pt_routes
+        return veh_routes, req_routes #, pt_routes
 
 
 

@@ -45,7 +45,7 @@ class DARPConstraintBuilder:
                         transfer_arcs.add((i,j))
             transfer_arcs.remove((0,0))
         else:
-            transfer_arcs = {(i,j) for i in C for j in C}
+            transfer_arcs = {(i,j) for i in C for j in C if self.base(i) != self.base(j)}
 
         DAR_arcs = {(i,j) for (i,j) in A if (i,j) not in transfer_arcs}
         request_arcs = {(i,j) for (i,j) in DAR_arcs if not (i == zeroDepot or j == endDepot)}
@@ -173,6 +173,11 @@ class DARPConstraintBuilder:
         cij, tij, di, pair_pi_di = self.params["cij"], self.params["tij"], self.params['di'], self.params['pair_pi_di']
         x, v, T_node = self.vars_['x'], self.vars_["v"], self.vars_['T_node']
         z = self.vars_['z']
+
+        c_max = max(cij.values())
+
+        # if self.variable_substitution: f1 = gb.quicksum(cij[(self.base(i),self.base(j))]/c_max * v[i,j] for (i,j) in v.keys())
+        # else: f1 = gb.quicksum(cij[self.base(i), self.base(j)]/c_max * x[k,i,j] for (k,i,j) in x.keys())
 
         if self.variable_substitution: f1 = gb.quicksum(cij[(self.base(i),self.base(j))] * v[i,j] for (i,j) in v.keys())
         else: f1 = gb.quicksum(cij[self.base(i), self.base(j)] * x[k,i,j] for (k,i,j) in x.keys())
@@ -391,6 +396,7 @@ class DARPConstraintBuilder:
                         for j in C
                         if (self.base(i), self.base(j)) in Departures
                         for d in Departures[(self.base(i), self.base(j))]
+                        if (d,r,i,j) in z
                     )
 
 
@@ -399,6 +405,7 @@ class DARPConstraintBuilder:
                         for j in C
                         if (self.base(j), self.base(i)) in Departures
                         for d in Departures[(self.base(j), self.base(i))]
+                        if (d,r,j,i) in z
                     )
 
                     self.m.addConstr(
@@ -805,6 +812,11 @@ class DARPConstraintBuilder:
                         B_node[j] - B_node[i] + beta * tij[(self.base(i), self.base(j))] - C_bat * (1 - gb.quicksum(x[k, i, j] for k in K if (k, i, j) in x.keys())) <= 0,
                         name=f"B[{j}] - B[{i}] + β * t[{self.base(i)},{self.base(j)}] - Cbat * (1 - ∑_k x[k,{i},{j}]) ≤ 0"
                     )
+                    self.m.addConstr(
+                        B_node[j] - B_node[i] + beta * tij[(self.base(i), self.base(j))] + C_bat * (1 - gb.quicksum(x[k, i, j] for k in K if (k, i, j) in x.keys())) >= 0,
+                        name=f"B[{j}] - B[{i}] + β * t[{self.base(i)},{self.base(j)}] - Cbat * (1 - ∑_k x[k,{i},{j}]) ≤ 0"
+                    )
+
 
         # (2) Battery capacity constraint at charging stations
         for s in F:
@@ -840,6 +852,7 @@ class DARPConstraintBuilder:
                         for j in C
                         if (i,j) in A
                         for d in Departures[self.base(i), self.base(j)]
+                        if (d,r,i,j) in z
                     ) - T_node[i]
                 )
                 self.m.addConstr(
@@ -857,6 +870,7 @@ class DARPConstraintBuilder:
                         for i in C
                         if (i,j) in A
                         for d in Departures[self.base(i), self.base(j)]
+                        if (d,r,i,j) in z
                     )
                 )
                 self.m.addConstr(
@@ -874,6 +888,7 @@ class DARPConstraintBuilder:
                     if (i,j) in A
                     for d in Departures[self.base(i), self.base(j)]
                     for r in R
+                    if (d,r,i,j) in z
                 )
                 + gb.quicksum(
                     z[d, r, j, i]
@@ -881,6 +896,7 @@ class DARPConstraintBuilder:
                     if (i,j) in A
                     for d in Departures[self.base(j), self.base(i)]
                     for r in R
+                    if (d,r,j,i) in z
                 )
             )
             self.m.addConstr(
@@ -897,6 +913,7 @@ class DARPConstraintBuilder:
                     if (i,j) in A
                     for d in Departures[self.base(i), self.base(j)]
                     for r in R
+                    if (d,r,i,j) in z
                 )
                 + gb.quicksum(
                     z[d, r, j, i]
@@ -904,6 +921,7 @@ class DARPConstraintBuilder:
                     if (i,j) in A
                     for d in Departures[self.base(j), self.base(i)]
                     for r in R
+                    if (d,r,j,i) in z
                 )
             )
             self.m.addConstr(
@@ -1024,7 +1042,6 @@ class DARPConstraintBuilder:
             # -------------------------------
 
             # Vehicle 1
-            # vehicle1_arcs = []
             vehicle1_arcs = [
                 ((0, 1), (1, 1)),
                 ((1, 1), (3, 1)),
@@ -1039,25 +1056,53 @@ class DARPConstraintBuilder:
             # Vehicle 2
             vehicle2_arcs = [
                 ((0, 1), (11,1)),
-                ((11,1), (7, 1)),
-                ((7, 1), (4, 1)),
-                ((4, 1), (12,1)),
-                ((12,1), (6, 1)),
-                ((6, 1), (9, 1)),
+                ((11,1), (6, 1)),
+                ((6, 1), (4, 1)),
+                ((4, 1), (7, 1)),
+                ((7, 1), (11,2)),
+                ((11,2), (9, 1)),
             ]
 
             # # Requests
             # request_arcs = []
+            # request_arcs = {
+            #     1: [((1, 1), (3, 1)), ((3, 1), (2, 1)), ((2, 1), (5, 1))],
+            #     2: [((2, 1), (5, 1)), ((5, 1), (10, 1)), ((11, 1), (7, 1)), ((7, 1), (4, 1)), ((4, 1), (12, 1)), ((12, 1), (6, 1))],
+            #     3: [((3, 1), (2, 1)), ((2, 1), (5, 1)), ((5, 1), (10, 1)), ((11, 1), (7, 1))],
+            #     4: [((4, 1), (12, 1)), ((10, 1), (8, 1))],
+            # }
             request_arcs = {
-                1: [((1, 1), (3, 1)), ((3, 1), (2, 1)), ((2, 1), (5, 1))],
-                2: [((2, 1), (5, 1)), ((5, 1), (10, 1)), ((11, 1), (7, 1)), ((7, 1), (4, 1)), ((4, 1), (12, 1)), ((12, 1), (6, 1))],
-                3: [((3, 1), (2, 1)), ((2, 1), (5, 1)), ((5, 1), (10, 1)), ((11, 1), (7, 1))],
-                4: [((4, 1), (12, 1)), ((10, 2), (8, 1))],
+                1: [
+                    ((1, 1), (3, 1)),
+                    ((3, 1), (2, 1)),
+                    ((2, 1), (5, 1)),
+                ],
+
+                2: [
+                    ((2, 1), (5, 1)),
+                    ((5, 1), (10,1)),
+                    ((11,1), (6, 1)),
+                ],
+
+                3: [
+                    ((3, 1), (2, 1)),
+                    ((2, 1), (5, 1)),
+                    ((5, 1), (10,1)),
+                    ((11,1), (6, 1)),
+                    ((6, 1), (4, 1)),
+                    ((4, 1), (7, 1)),
+                ],
+
+                4: [
+                    ((4, 1), (7, 1)),
+                    ((7, 1), (11,2)),
+                    ((10,2), (8, 1)),
+                ],
             }
 
             transfer_arcs = [
                 ((10, 1), (11, 1)),
-                ((12, 1), (10, 2)),
+                ((12, 1), (10, 1)),
             ]
             # transfer_arcs = []
 

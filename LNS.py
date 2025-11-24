@@ -315,44 +315,288 @@ class initial_solution:
         return routes
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
         
+class translate_LNS_to_Gurobi:
 
+    def __init__(self, vehicle_routes):
+        self.vehicle_routes = vehicle_routes
+        self.n_veh = len(self.vehicle_routes)
 
-
-        
-            
-
-
-
-
-
-
-
-
-
-        
-
-
+    def base(self, i):
+        return i[0] if isinstance(i, tuple) else i
+  
     ### === Change the routes that have been found to be understood by gurobi variables === ###
     
-    def translate_to_gurobi_variables(self):
-        x , v = self.vars_['x'], self.vars_['v']
-        for vehicle in range(self.n_veh):
-            for step in range(len(self.vehicle_route) - 1):
-                x[vehicle, self.vehicle_route[step], self.vehicle_route[step + 1]] = 1
+    def translate_to_gurobi_variables_x(self):
+        """
+        Takes self.vehicle_route[v] (a list of nodes for each vehicle)
+        and assigns x or v variables = 1 accordingly.
+        """
+
+        x = self.vars_.get("x", None)
+        v = self.vars_.get("v", None)
+
+        for k in range(self.n_veh):
+
+            route = self.vehicle_route[k]
+            if len(route) <= 1:
+                continue   # nothing to assign
+
+            for idx in range(len(route) - 1):
+                i = self.base(route[idx])
+                j = self.base(route[idx + 1])
+
+                # Standard case: x[k,i,j] are used
+                if not self.variable_substitution:
+                    try:
+                        self.m.addConstr(x[k, i, j] == 1)
+                    except KeyError:
+                        pass  # arc not in model → ignore silently
+
+                # Variable substitution: v[i,j] used instead of x
+                else:
+                    try:
+                        self.m.addConstr(v[i, j] == 1)
+                    except KeyError:
+                        pass
+
+    def translate_to_gurobi_variables_y_z_duplicate_transfers(self):
+        """
+        For each request r, reconstruct its full path including:
+        - same-vehicle pickup → dropoff
+        - or pickup → transfer → PT → transfer → dropoff
+
+        Then set the corresponding Gurobi variables:
+        - y[r,i,j] = 1 for vehicle arcs used by the request
+        - z[r,t1,t2] = 1 for PT arcs between transfer nodes
+        """
+
+        y = self.vars_["y"]
+        z = self.vars_["z"]
+
+        pair_pi_di = self.params["pair_pi_di"]
+        Cr = self.params["Cr"]  # Cr per request
+
+        for r_pick, r_drop in pair_pi_di.items():
+
+            r = r_pick  # request id = pickup node id
+
+            # ---- STEP 1: find vehicle that visits the pickup ----
+            v_pick = None
+            idx_pick = None
+            for v in range(self.n_veh):
+                route = self.vehicle_routes[v]
+                for idx, node in enumerate(route):
+                    if self.base(node) == self.base(r_pick):
+                        v_pick = v
+                        idx_pick = idx
+                        break
+                if v_pick is not None:
+                    break
+
+            if v_pick is None:
+                print(f"Request {r_pick} not served")
+                continue  # request not served at all (should not happen)
+
+            route1 = self.vehicle_routes[v_pick]
+
+            # ---- STEP 2: search forward for the dropoff ----
+            idx_drop = None
+            for idx2 in range(idx_pick + 1, len(route1)):
+                if self.base(route1[idx2]) == self.base(r_drop):
+                    idx_drop = idx2
+                    break
+
+            # ---- CASE A: same vehicle serves pickup → dropoff ----
+            if idx_drop is not None:
+                for a in range(idx_pick, idx_drop):
+                    i = self.base(route1[a])
+                    j = self.base(route1[a+1])
+                    if (r, i, j) in y:
+                        y[r, i, j].Start = 1
+                continue
+
+            # ---- CASE B: request must transfer using PT ----
+            # Find first transfer node in Cr on vehicle v_pick's route
+            idx_t1 = None
+            t1 = None
+            for a in range(idx_pick + 1, len(route1)):
+                node = self.base(route1[a])
+                if node in Cr:
+                    idx_t1 = a
+                    t1 = node
+                    break
+
+            if t1 is None:
+                print(f"Request {r_pick} has an incomplete route")
+                print("The issue stems from pickup to transfer")
+                continue  # should not happen if Cr is correct
+
+            # Mark vehicle arcs from pickup → transfer t1
+            for a in range(idx_pick, idx_t1):
+                i = self.base(route1[a])
+                j = self.base(route1[a+1])
+                if (r, i, j) in y:
+                    y[r, i, j].Start = 1
+
+            # ---- STEP 3: find second vehicle that visits a Cr node ----
+            v_drop = None
+            idx_t2 = None
+            t2 = None
+
+            for v2 in range(self.n_veh):
+                route2 = self.vehicle_route[v2]
+                for a2, node in enumerate(route2):
+                    node_b = self.base(node)
+                    if node_b in Cr and node_b != t1:
+                        v_drop = v2
+                        idx_t2 = a2
+                        t2 = node_b
+                        break
+                if v_drop is not None:
+                    break
+
+            if t2 is None:
+                print(f"Request {r_pick} has an incomplete route")
+                print("The issue stems from transfer to transfer")
+                continue  # no second transfer → cannot serve
+
+            # ---- STEP 4: PT arc between t1 → t2 ----
+            if (t1, t2) in z:
+                z[t1, t2].Start = 1
+
+            # ---- STEP 5: continue vehicle v_drop from t2 → r_drop ----
+            route2 = self.vehicle_route[v_drop]
+            idx_final_drop = None
+
+            for a2 in range(idx_t2 + 1, len(route2)):
+                if self.base(route2[a2]) == self.base(r_drop):
+                    idx_final_drop = a2
+                    break
+
+            if idx_final_drop is None:
+                print(f"Request {r_pick} has an incomplete route")
+                print("The issue stems from transfer to dropoff")
+                continue  # incomplete second half
+
+            for a2 in range(idx_t2, idx_final_drop):
+                i = self.base(route2[a2])
+                j = self.base(route2[a2+1])
+                if (r, i, j) in y:
+                    y[r, i, j].Start = 1
+
+    def translate_to_gurobi_variables_y_z_imjn(self):
+        """
+        Same as translate_to_gurobi_variables_y_z but adapted for IMJN node format,
+        where transfer nodes are shared across requests.
+        
+        For a request that changes vehicles:
+            - t1 = first transfer node in C visited AFTER pickup
+            - t2 = last  transfer node in C visited BEFORE dropoff
+        """
+
+        y = self.vars_["y"]
+        z = self.vars_["z"]
+        pair_pi_di = self.params["pair_pi_di"]
+        C = set(self.base(i) for i in self.sets["C"])
+
+        for r_pick, r_drop in pair_pi_di.items():
+
+            r = r_pick
+            base_pick = self.base(r_pick)
+            base_drop = self.base(r_drop)
+
+            # === STEP 1 — find vehicle & position of pickup ===
+            v_pick, idx_pick = None, None
+            for v in range(self.n_veh):
+                route = self.vehicle_routes[v]
+                for idx, node in enumerate(route):
+                    if self.base(node) == base_pick:
+                        v_pick = v
+                        idx_pick = idx
+                        break
+                if v_pick is not None:
+                    break
+            if v_pick is None:
+                print(f"Request {self.base(r_pick)} not served")
+                continue  # request not served
+
+            route1 = self.vehicle_routes[v_pick]
+
+            # === STEP 2 — does same vehicle visit dropoff? ===
+            idx_drop_same = None
+            for a in range(idx_pick + 1, len(route1)):
+                if self.base(route1[a]) == base_drop:
+                    idx_drop_same = a
+                    break
+
+            if idx_drop_same is not None:
+                # SAME VEHICLE: mark arcs pickup → dropoff
+                for a in range(idx_pick, idx_drop_same):
+                    i = self.base(route1[a])
+                    j = self.base(route1[a+1])
+                    if (r, i, j) in y:
+                        y[r, i, j].Start = 1
+                continue
+
+            # === STEP 3 — Request must transfer ===
+            # t1 = first transfer node after pickup
+            t1, idx_t1 = None, None
+            for a in range(idx_pick + 1, len(route1)):
+                node_b = self.base(route1[a])
+                if node_b in C:
+                    t1 = node_b
+                    idx_t1 = a
+                    break
+            if t1 is None:
+                print(f"Request {self.base(r_pick)} has an incomplete route")
+                print("The issue stems from pickup to transfer")
+                continue  # no transfer found → invalid route
+
+            # mark pickup → t1
+            for a in range(idx_pick, idx_t1):
+                i = self.base(route1[a])
+                j = self.base(route1[a+1])
+                if (r, i, j) in y:
+                    y[r, i, j].Start = 1
+
+            # === STEP 4 — find t2: last transfer before dropoff ===
+            v_drop, idx_drop, t2, idx_t2 = None, None, None, None
+
+            for v2 in range(self.n_veh):
+                route2 = self.vehicle_route[v2]
+                # first find dropoff on this vehicle
+                for a2, node in enumerate(route2):
+                    if self.base(node) == base_drop:
+                        v_drop = v2
+                        idx_drop = a2
+                        break
+                if v_drop is not None:
+                    # now search BACKWARDS from idx_drop for last transfer
+                    for a2 in range(idx_drop - 1, -1, -1):
+                        node_b = self.base(route2[a2])
+                        if node_b in C and node_b != t1:
+                            t2 = node_b
+                            idx_t2 = a2
+                            break
+                    break
+
+            if t2 is None:
+                print(f"Request {self.base(r_pick)} has an incomplete route")
+                print("The issue stems from transfer to transfer")
+                continue  # no second transfer → cannot serve request
+
+            # === STEP 5 — assign z[r,t1,t2] ===
+            # if (r, t1, t2) in z:
+            #     z[r, t1, t2].Start = 1
+
+            # === STEP 6 — from t2 → dropoff on v_drop ===
+            route2 = self.vehicle_route[v_drop]
+            for a2 in range(idx_t2, idx_drop):
+                i = self.base(route2[a2])
+                j = self.base(route2[a2+1])
+                if (r, i, j) in y:
+                    y[r, i, j].Start = 1
 
 
             

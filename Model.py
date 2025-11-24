@@ -66,7 +66,7 @@ class DARPModelBuilder:
         constraint_builder.variable_substitution = variable_substitution
         constraint_builder.timetabled_departures = timetabled_departures
         if MoPS:
-            w = [1/3, 0, 1/3, 1/3]
+            w = [1, 0, 0, 1]
         else:
             w=[1,0,0,0]
         constraint_builder.set_objective(w)

@@ -330,9 +330,15 @@ class DARPDataBuilder:
                     for a, d in Departures[(right_terminal, transfer_nodes[i])].items()
                 }
 
-        Departures[(10,10)] = {a: interval * a for a in range(int(n_intervals))}
-        Departures[(11,11)] = {a: interval * a for a in range(int(n_intervals))}
-        Departures[(12,12)] = {a: interval * a for a in range(int(n_intervals))}
+        if self.MoPS:
+            Departures[(13,13)] = {a: interval * a for a in range(int(n_intervals))}
+            Departures[(14,14)] = {a: interval * a for a in range(int(n_intervals))}
+            Departures[(12,12)] = {a: interval * a for a in range(int(n_intervals))}
+
+        else:
+            Departures[(10,10)] = {a: interval * a for a in range(int(n_intervals))}
+            Departures[(11,11)] = {a: interval * a for a in range(int(n_intervals))}
+            Departures[(12,12)] = {a: interval * a for a in range(int(n_intervals))}
 
         return Departures
 
@@ -395,10 +401,10 @@ class DARPDataBuilder:
                     if (base(i), base(endDepot)) in tij:
                         del tij[(base(i), base(endDepot))]
 
-            # --- Remove self-loops ---
-            for i in N:
-                if (base(i), base(i)) in tij:
-                    del tij[(base(i), base(i))]
+            # # --- Remove self-loops ---
+            # for i in N:
+            #     if (base(i), base(i)) in tij:
+            #         del tij[(base(i), base(i))]
 
             # --- Drop-off → Pickup arcs ---
             for p, d in pair_pi_di.items():
@@ -710,7 +716,7 @@ class DARPDataBuilder:
                 n=n, pair_pi_di=pair_pi_di, pair_pi_di_M=pair_pi_di_M, C=C, R=R)
             
         tij_keys = params['tij'].keys()
-        sets["A"] = {(i, j) for i in N for j in N if (self.base(i), self.base(j)) in tij_keys}
+        sets["A"] = {(i, j) for i in N for j in N if (self.base(i), self.base(j)) in tij_keys and i != j}
 
         if self.duplicate_transfers:
             params["Cr"] = Cr 
@@ -733,11 +739,11 @@ class DARPDataBuilder:
     
 if __name__ == "__main__":
     builder = DARPDataBuilder(
-        duplicate_transfers=True,
+        duplicate_transfers=False,
         arc_elimination=True,
         ev_constraints=False,
-        use_imjn=False,
-        MoPS=True
+        use_imjn=True,
+        MoPS=False
     )
     sets, params = builder.build()
     print("✅ Build complete.")
@@ -749,8 +755,13 @@ if __name__ == "__main__":
     # print("tij: ", params['tij'])
     # print("ei:", params['ei'])
     # print("li:", params['li'])
-    print("C", sets['C'])
-    print("A", sets['A'])
+    # print("C", sets['C'])
+    # print("A", sets['A'])
+    # def base(x):
+    #     return x[0] if isinstance(x, tuple) else x
+    # for (i,j) in sets['A']:
+    #     if base(i) == base(j):
+    #         print((i,j))
     # tij_keys = params['tij'].keys()
     # for key in tij_keys:
     #     if key[0] == 0:

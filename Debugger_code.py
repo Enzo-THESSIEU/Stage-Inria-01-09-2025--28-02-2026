@@ -448,29 +448,29 @@ class DARPRouteDebugging:
         Cr = self.params['Cr']
         used_PT_arcs = []
 
-        print(f"PT extraction mode: {'timetabled' if self.timetabled_departures else 'simple'}")
-        print(f"→ z variable keys example: {list(z.keys())[:5]}")
+        # print(f"PT extraction mode: {'timetabled' if self.timetabled_departures else 'simple'}")
+        # print(f"→ z variable keys example: {list(z.keys())[:5]}")
 
         if self.timetabled_departures:
             Departures = self.params.get("Departures", {})
-            print(f"→ Departures keys: {list(Departures.keys())[:5]}")
+            # print(f"→ Departures keys: {list(Departures.keys())[:5]}")
+            for r in R:
+                for i in C:
+                    for j in C:
+                        key = (self.base(i), self.base(j))
+                        if key not in Departures:
+                            continue
 
-            for i in C:
-                for j in C:
-                    key = (self.base(i), self.base(j))
-                    if key not in Departures:
-                        continue
-
-                    for d in Departures[key]:
-                        if (d, i, j) in z:
-                            if z[d, i, j].X > 1e-6:
-                                used_PT_arcs.append([
-                                    (i, j),
-                                    f"Departure {d}",
-                                    f"T({i})={T_node[i].X:.2f}",
-                                    f"T({j})={T_node[j].X:.2f}",
-                                    f"z={z[d,i,j].X:.3f}"
-                                ])
+                        for d in Departures[key]:
+                            if (d, r, i, j) in z:
+                                if z[d, r, i, j].X > 1e-6:
+                                    used_PT_arcs.append([
+                                        (i, j),
+                                        f"Departure {d}",
+                                        f"T({i})={T_node[i].X:.2f}",
+                                        f"T({j})={T_node[j].X:.2f}",
+                                        f"z={z[d,r,i,j].X:.3f}"
+                                    ])
 
         else:
             if Cr:
