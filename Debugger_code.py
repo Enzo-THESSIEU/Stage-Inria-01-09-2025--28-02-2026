@@ -207,117 +207,306 @@ class DARPRouteDebugging:
             node_type, req_id = "unknown", ""
         return node_type, req_id
 
+    def extract_vehicle_route_final_ev(self):
+        """
+        Universal route extractor.
+        Returns enriched route lists for Veh1 and Veh2:
+        [
+        [ arc=(i,j), node=i, type, req, T_i, SOC%, charge_time, pct_charged ]
+        ...
+        ]
+        """
+
+        # === Shortcuts ===
+        zeroDepot = self.sets["zeroDepot"]
+        endDepot = self.sets["endDepot"]
+        K = self.sets["K"]
+        F = self.sets["F"]
+
+        T_node = self.vars_["T_node"]
+        B_node = self.vars_["B_node"]
+        E_node = self.vars_["E_node"]
+
+        C_bat = self.params["C_bat"]
+        alpha = self.params["alpha"]
+
+        # -----------------------------------------
+        # Helper
+        # -----------------------------------------
+        def soc(i):
+            """Battery % at node i."""
+            if i in B_node:
+                return round(B_node[i].X / C_bat * 100, 1)
+            return None
+
+        def charge_info(i, node_type):
+            """Return (charging_time, percent_charged)."""
+            if node_type != "charging station":
+                return 0.0, 0.0
+            if i in E_node:
+                ct = float(E_node[i].X)
+                pct = round(alpha * ct / C_bat * 100, 1)
+                return ct, pct
+            return 0.0, 0.0
+
+        # -----------------------------------------
+        # CASE 1 – variable substitution v[i,j]
+        # -----------------------------------------
+        if self.variable_substitution:
+            v = self.vars_["v"]
+
+            # collect used arcs
+            arcs = [(i, j) for (i, j) in v.keys() if v[i, j].X > 0.5]
+
+            # separate by vehicle using depot start
+            veh_routes = {0: [], 1: []}
+            unassigned = arcs.copy()
+
+            # detect arcs starting from depot
+            starts = [arc for arc in arcs if self.base(arc[0]) == 0]
+
+            if len(starts) >= 1:
+                veh_routes[0].append(starts[0])
+                unassigned.remove(starts[0])
+            if len(starts) >= 2:
+                veh_routes[1].append(starts[1])
+                unassigned.remove(starts[1])
+
+            # follow paths
+            for k in [0, 1]:
+                route = veh_routes[k]
+                stuck = 0
+                while unassigned and stuck < 50 and route:
+                    last = route[-1][1]
+                    found = False
+                    for arc in list(unassigned):
+                        if arc[0] == last:
+                            route.append(arc)
+                            unassigned.remove(arc)
+                            found = True
+                            break
+                    if not found:
+                        stuck += 1
+                veh_routes[k] = route
+
+            # enrich
+            enriched_routes = {0: [], 1: []}
+            for k in [0, 1]:
+                out = []
+                for (i, j) in veh_routes[k]:
+                    node_type, req = self.safe_node_info(i)
+                    T = T_node[i].X if i in T_node else None
+                    SoC = soc(i)
+                    ct, pct = charge_info(i, node_type)
+                    out.append([[i, j], i, node_type, req, T, SoC, ct, pct])
+                enriched_routes[k] = out
+
+            return enriched_routes[0], enriched_routes[1]
+
+        # -----------------------------------------
+        # CASE 2 – classical x[k,i,j]
+        # -----------------------------------------
+        x = self.vars_["x"]
+        veh_routes = {k: [] for k in K}
+
+        for k in K:
+            used = [(i, j) for (kk, i, j) in x.keys() if kk == k and x[kk, i, j].X > 0.5]
+
+            if not used:
+                continue
+
+            # find start arc
+            try:
+                first_arc = next((i, j) for (i, j) in used if i == zeroDepot)
+            except StopIteration:
+                continue
+
+            route = [first_arc]
+            used.remove(first_arc)
+
+            # follow chain
+            stuck = 0
+            while stuck < 200:
+                last_j = route[-1][1]
+                if last_j == endDepot:
+                    break
+                found = False
+                for arc in used:
+                    if arc[0] == last_j:
+                        route.append(arc)
+                        used.remove(arc)
+                        found = True
+                        break
+                if not found:
+                    stuck += 1
+                else:
+                    stuck = 0
+
+            veh_routes[k] = route
+
+        # -----------------------------------------
+        # enrich & return in Veh1, Veh2 order
+        # -----------------------------------------
+        enriched_routes = {}
+        for k in K:
+            out = []
+            for (i, j) in veh_routes[k]:
+                node_type, req = self.safe_node_info(i)
+                T = T_node[i].X if i in T_node else None
+                SoC = soc(i)
+                ct, pct = charge_info(i, node_type)
+                out.append([[i, j], i, node_type, req, T, SoC, ct, pct])
+            enriched_routes[k] = out
+
+        return enriched_routes.get(0, []), enriched_routes.get(1, [])
 
     def extract_vehicle_route_final(self):
         """
-        Universal route extractor — works with:
-        - variable_substitution: True (uses v) or False (uses x)
-        - use_imjn: True (artificial node tuples) or False (flat node IDs)
-        Orders request routes by service time (T_node).
+        Universal route extractor WITHOUT any EV constraints.
+        Returns enriched route lists for Veh1 and Veh2:
+        [
+            [ arc=(i,j), node=i, type, req, T_i ]
+        ]
         """
-        nodes, N, P, D, C, F, R, K, zeroDepot_node, endDepot_node, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
-        y, z, T_node = self.vars_["y"], self.vars_['z'], self.vars_["T_node"]
 
-        # === VEHICLE ARCS ===
-        used_arcs = {}
-        print("var_sub in Darp Extractor", self.variable_substitution)
+        # === Shortcuts ===
+        zeroDepot = self.sets["zeroDepot"]
+        endDepot = self.sets["endDepot"]
+        K = self.sets["K"]
 
+        T_node = self.vars_.get("T_node", {})
+
+        # -----------------------------------------
+        # Helper: extract T_i safely
+        # -----------------------------------------
+        def get_time(i):
+            if i in T_node:
+                try:
+                    return float(T_node[i].X)
+                except:
+                    return None
+            return None
+
+        # -----------------------------------------
+        # CASE 1 – variable substitution v[i,j]
+        # -----------------------------------------
         if self.variable_substitution:
-            v = self.vars_["v"]
-            for (i, j) in v.keys():
-                if v[(i, j)].X > 0.5:
-                    node_type, req_id = self.safe_node_info(i)
-                    used_arcs[(i, j)] = [
+            v = self.vars_.get("v", {})
+
+            # collect used arcs
+            arcs = [(i, j) for (i, j) in v.keys() if v[i, j].X > 0.5]
+
+            veh_routes = {0: [], 1: []}
+            unassigned = arcs.copy()
+
+            # detect arcs starting at depot
+            starts = [arc for arc in arcs if self.base(arc[0]) == 0]
+
+            if len(starts) >= 1:
+                veh_routes[0].append(starts[0])
+                unassigned.remove(starts[0])
+
+            if len(starts) >= 2:
+                veh_routes[1].append(starts[1])
+                unassigned.remove(starts[1])
+
+            # follow chains
+            for k in [0, 1]:
+                route = veh_routes[k]
+                stuck = 0
+                while unassigned and stuck < 50 and route:
+                    last = route[-1][1]
+                    found = False
+                    for arc in list(unassigned):
+                        if arc[0] == last:
+                            route.append(arc)
+                            unassigned.remove(arc)
+                            found = True
+                            break
+                    if not found:
+                        stuck += 1
+                veh_routes[k] = route
+
+            # enrich
+            enriched = {0: [], 1: []}
+            for k in [0, 1]:
+                out = []
+                for (i, j) in veh_routes[k]:
+                    node_type, req = self.safe_node_info(i)
+                    T = get_time(i)
+                    out.append([
                         [i, j],
                         i,
                         node_type,
-                        req_id,
-                        f"Service time at node {i}",
-                        T_node[i].X if (i in T_node) else None,
-                    ]
+                        req,
+                        T
+                    ])
+                enriched[k] = out
 
-            # --- Detect first trips (from depot) ---
-            used_arcs_vehicle_1, used_arcs_vehicle_2 = [], []
-            first_trips = [used_arcs.pop(k) for k in list(used_arcs.keys()) if self.base(k[0]) == 0]
+            return enriched[0], enriched[1]
 
-            if first_trips:
-                used_arcs_vehicle_1.append(first_trips[0])
-            if len(first_trips) > 1:
-                used_arcs_vehicle_2.append(first_trips[1])
+        # -----------------------------------------
+        # CASE 2 – classical x[k,i,j]
+        # -----------------------------------------
+        x = self.vars_.get("x", {})
+        veh_routes = {k: [] for k in K}
 
-            # --- Stitch vehicle paths ---
-            stuck_counter = 0
-            while used_arcs and stuck_counter < 100:
-                progress = False
-                for key in list(used_arcs.keys()):
-                    i, j = key
-                    if used_arcs_vehicle_1 and i == used_arcs_vehicle_1[-1][0][1]:
-                        used_arcs_vehicle_1.append(used_arcs.pop(key))
-                        progress = True
-                    elif used_arcs_vehicle_2 and i == used_arcs_vehicle_2[-1][0][1]:
-                        used_arcs_vehicle_2.append(used_arcs.pop(key))
-                        progress = True
-                if not progress:
-                    stuck_counter += 1
-                    if stuck_counter == 3:
-                        print("⚠️ No progress in vehicle stitching — breaking loop.")
-                        break
-        else:
-            x = self.vars_['x']
-            all_vehicle_routes = {}
-            stuck_counter_limit = 200
+        for k in K:
+            used = [(i, j) for (kk, i, j) in x.keys() if kk == k and x[kk, i, j].X > 0.5]
 
-            for k in K:
-                # Collect all arcs used by vehicle k
-                used_arcs = [(i, j) for (k, i, j) in x.keys() if x[k, i, j].X > 0.5]
+            if not used:
+                continue
 
-                if not used_arcs:
-                    all_vehicle_routes[k] = []
-                    continue
+            try:
+                first_arc = next((i, j) for (i, j) in used if i == zeroDepot)
+            except StopIteration:
+                continue
 
-                # Find the starting arc (out of depot)
-                try:
-                    first_arc = next((i, j) for (i, j) in used_arcs if i == zeroDepot_node)
-                except StopIteration:
-                    print(f"[Warning] No starting arc for vehicle {k}")
-                    all_vehicle_routes[k] = []
-                    continue
+            route = [first_arc]
+            used.remove(first_arc)
 
-                route = [first_arc]
-                used_arcs.remove(first_arc)
-                stuck_counter = 0
-                progress = True
+            # follow arc chain
+            stuck = 0
+            while stuck < 200:
+                last_j = route[-1][1]
+                if last_j == endDepot:
+                    break
 
-                # Follow route until reaching the end depot or getting stuck
-                while progress and stuck_counter < stuck_counter_limit:
-                    progress = False
-                    last_j = route[-1][1]
-
-                    # Stop if we’ve reached the end depot
-                    if last_j == endDepot_node:
+                found = False
+                for arc in used:
+                    if arc[0] == last_j:
+                        route.append(arc)
+                        used.remove(arc)
+                        found = True
                         break
 
-                    # Find next arc starting from the current endpoint
-                    for arc in used_arcs:
-                        if arc[0] == last_j:
-                            route.append(arc)
-                            used_arcs.remove(arc)
-                            progress = True
-                            break
+                if not found:
+                    stuck += 1
+                else:
+                    stuck = 0
 
-                    if not progress:
-                        stuck_counter += 1
+            veh_routes[k] = route
 
-                # Store final route
-                all_vehicle_routes[k] = route
+        # -----------------------------------------
+        # Enrich nodes
+        # -----------------------------------------
+        enriched = {}
+        for k in K:
+            out = []
+            for (i, j) in veh_routes[k]:
+                node_type, req = self.safe_node_info(i)
+                T = get_time(i)
+                out.append([
+                    [i, j],
+                    i,
+                    node_type,
+                    req,
+                    T
+                ])
+            enriched[k] = out
 
-                if stuck_counter >= stuck_counter_limit:
-                    print(f"[Warning] Vehicle {k} route extraction stopped (possible disconnected path)")
-                
-            used_arcs_vehicle_1 = all_vehicle_routes[0]
-            used_arcs_vehicle_2 = all_vehicle_routes[1]
-        
-        return used_arcs_vehicle_1, used_arcs_vehicle_2
+        return enriched.get(0, []), enriched.get(1, [])
+
 
     def extract_request_route_final(self):
 

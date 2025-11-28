@@ -176,11 +176,11 @@ class DARPConstraintBuilder:
 
         c_max = max(cij.values())
 
-        # if self.variable_substitution: f1 = gb.quicksum(cij[(self.base(i),self.base(j))]/c_max * v[i,j] for (i,j) in v.keys())
-        # else: f1 = gb.quicksum(cij[self.base(i), self.base(j)]/c_max * x[k,i,j] for (k,i,j) in x.keys())
+        if self.variable_substitution: f1 = gb.quicksum(cij[(self.base(i),self.base(j))]/c_max * v[i,j] for (i,j) in v.keys())
+        else: f1 = gb.quicksum(cij[self.base(i), self.base(j)]/c_max * x[k,i,j] for (k,i,j) in x.keys())
 
-        if self.variable_substitution: f1 = gb.quicksum(cij[(self.base(i),self.base(j))] * v[i,j] for (i,j) in v.keys())
-        else: f1 = gb.quicksum(cij[self.base(i), self.base(j)] * x[k,i,j] for (k,i,j) in x.keys())
+        # if self.variable_substitution: f1 = gb.quicksum(cij[(self.base(i),self.base(j))] * v[i,j] for (i,j) in v.keys())
+        # else: f1 = gb.quicksum(cij[self.base(i), self.base(j)] * x[k,i,j] for (k,i,j) in x.keys())
 
         f2 = gb.quicksum(T_node[d] - T_node[p] - di[self.base(p)] - tij[self.base(p),self.base(d)] for p,d in pair_pi_di.items())
         f3 = gb.quicksum((T_node[d] - T_node[p] - di[self.base(p)]) / tij[self.base(p),self.base(d)] for p,d in pair_pi_di.items())
@@ -787,14 +787,14 @@ class DARPConstraintBuilder:
 
     def add_battery_constraints(self):
         nodes, N, P, D, C, F, R, K, P_M, D_M, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets['P_M'], self.sets['D_M'], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
-        x, v, B_node, E_node = self.vars_['x'], self.vars_["v"], self.vars_["B_node"], self.vars_["E_node"]
+        x, v, y, B_node, E_node, T_node = self.vars_['x'], self.vars_["v"], self.vars_['y'], self.vars_["B_node"], self.vars_["E_node"], self.vars_['T_node']
         tij = self.params["tij"]
-        beta, alpha, C_bat, gamma = self.params["beta"], self.params["alpha"], self.params["C_bat"], self.params["gamma"]
+        beta, alpha, C_bat, gamma, gamma_end, ei, li = self.params["beta"], self.params["alpha"], self.params["C_bat"], self.params["gamma"], self.params['gamma_end'], self.params['ei'], self.params['li']
 
         if self.variable_substitution:
             # (1) Battery SOC variation along arcs (with variable substitution)
             for (i, j) in v.keys():
-                if i not in F and j not in F:
+                if i not in F:
                     self.m.addConstr(
                         B_node[j] - B_node[i] + beta * tij[(self.base(i), self.base(j))] - C_bat * (1 - v[i, j]) <= 0,
                         name=f"B[{j}] - B[{i}] + β * t[{self.base(i)},{self.base(j)}] - Cbat * (1 - v[{i},{j}]) ≤ 0"
@@ -804,10 +804,22 @@ class DARPConstraintBuilder:
                         name=f"B[{j}] - B[{i}] + β * t[{self.base(i)},{self.base(j)}] + Cbat * (1 - v[{i},{j}]) ≥ 0"
                     )
 
+            for s in F:
+                for j in N:
+                    if (s,j) in v:
+                        self.m.addConstr(
+                            B_node[j] <= B_node[s] - beta * tij[(self.base(s), self.base(j))] + alpha * E_node[s] + C_bat * (1 - v[s, j]),
+                            name = "Battery consumption/recharge at charging facilities"
+                        )
+                        self.m.addConstr(
+                            B_node[j] >= B_node[s] - beta * tij[(self.base(s), self.base(j))] + alpha * E_node[s] - C_bat * (1 - v[s, j]),
+                            name = "Battery consumption/recharge at charging facilities"
+                        )
+
         else:
             # (1') Battery SOC variation along arcs (without variable substitution)
             for (i, j) in A:
-                if i not in F and j not in F:
+                if i not in F:
                     self.m.addConstr(
                         B_node[j] - B_node[i] + beta * tij[(self.base(i), self.base(j))] - C_bat * (1 - gb.quicksum(x[k, i, j] for k in K if (k, i, j) in x.keys())) <= 0,
                         name=f"B[{j}] - B[{i}] + β * t[{self.base(i)},{self.base(j)}] - Cbat * (1 - ∑_k x[k,{i},{j}]) ≤ 0"
@@ -815,6 +827,17 @@ class DARPConstraintBuilder:
                     self.m.addConstr(
                         B_node[j] - B_node[i] + beta * tij[(self.base(i), self.base(j))] + C_bat * (1 - gb.quicksum(x[k, i, j] for k in K if (k, i, j) in x.keys())) >= 0,
                         name=f"B[{j}] - B[{i}] + β * t[{self.base(i)},{self.base(j)}] - Cbat * (1 - ∑_k x[k,{i},{j}]) ≤ 0"
+                    )
+
+            for s in F:
+                for j in N:
+                    self.m.addConstr(
+                        B_node[j] <= B_node[s] - beta * tij[(self.base(s), self.base(j))] + alpha * E_node[s] + C_bat * (1 - gb.quicksum(x[k, s, j] for k in K if (k, s, j) in x.keys())),
+                        name = "Battery consumption/recharge at charging facilities"
+                    )
+                    self.m.addConstr(
+                        B_node[j] >= B_node[s] - beta * tij[(self.base(s), self.base(j))] + alpha * E_node[s] - C_bat * (1 - gb.quicksum(x[k, s, j] for k in K if (k, s, j) in x.keys())),
+                        name = "Battery consumption/recharge at charging facilities"
                     )
 
 
@@ -837,6 +860,48 @@ class DARPConstraintBuilder:
             B_node[zeroDepot] == C_bat,
             name=f"B[{zeroDepot}] = Cbat  [Initial SOC]"
 )
+        
+        # (5) No passengers on board at a charging station
+        for j in F:
+            for i in N:
+                self.m.addConstr(gb.quicksum(y[r, i, j] for r in R if (r, i, j) in y) == 0, name = 'A DAR vehicle is empty at a charging station')
+                self.m.addConstr(gb.quicksum(y[r, j, i] for r in R if (r, j, i) in y) == 0, name = 'A DAR vehicle is empty at a charging station')
+
+        # (6) Charging Time constraints
+        if self.variable_substitution:
+            for i in N:
+                for s in F:
+                    if self.base(i) != self.base(s):
+                        if (i,j) in A:
+                            self.m.addConstr(
+                                E_node[s] <= T_node[s] - tij[self.base(i), self.base(s)] - T_node[i] + 
+                                (li[self.base(s)] - ei[self.base(i)] + tij[self.base(i), self.base(s)]) * (1 - v[i,s]),
+                                name = "Charging time constraints (1)"
+                            )
+                            self.m.addConstr(
+                                E_node[s] >= T_node[s] - tij[self.base(i), self.base(s)] - T_node[i] - 
+                                (li[self.base(s)] - ei[self.base(i)] + tij[self.base(i), self.base(s)]) * (1 - v[i,s]),
+                                name = "Charging time constraints (1)"
+                            )
+        else:
+            for i in N:
+                for s in F:
+                    if i != s:
+                        if (i,j) in A:
+                            self.m.addConstr(
+                                E_node[s] <= T_node[s] - tij[self.base(i), self.base(s)] - T_node[i] + 
+                                (li[self.base(s)] - ei[self.base[i]] + tij[self.base[i], self.base[s]]) * (1 - gb.quicksum(x[k,i,s] for k in K)),
+                                name = "Charging time constraints (1)"
+                            )
+                            self.m.addConstr(
+                                E_node[s] >= T_node[s] - tij[self.base(i), self.base(s)] - T_node[i] - 
+                                (li[self.base(s)] - ei[self.base[i]] - tij[self.base[i], self.base[s]]) * (1 - gb.quicksum(x[k,i,s] for k in K)),
+                                name = "Charging time constraints (1)"
+                            )
+
+        # (8) Battery Capcity at End Depot node
+        self.m.addConstr(B_node[endDepot]/C_bat >= gamma_end)
+
 
     def add_scheduled_PT_constraints(self):
         nodes, N, P, D, C, F, R, K, P_M, D_M, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets['P_M'], self.sets['D_M'], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
@@ -939,6 +1004,10 @@ class DARPConstraintBuilder:
                 self.m.addConstr(
                     a[i, m_] - a[i, m_ + 1] >= 0,
                     name=f"a[{i},{m_}] - a[{i},{m_+1}] ≥ 0  [Monotonic_activation_i={i}]"
+                )
+                self.m.addConstr(
+                    T_node[i, m_] - T_node[i, m_ + 1] <= 0,
+                    name=f"T_node[{i},{m_}] - T_node[{i},{m_+1}] <= 0  [Monotonic_activation_i={i}]"
                 )
 
         # for j in N:

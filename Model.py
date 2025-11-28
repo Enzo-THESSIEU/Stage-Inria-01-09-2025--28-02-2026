@@ -96,7 +96,7 @@ class DARPModelBuilder:
         if MoPS:
             constraint_builder.add_MoPS_constraints()
 
-        # constraint_builder.base_model_optimal_solution_constrainer_paper()
+        constraint_builder.base_model_optimal_solution_constrainer_paper()
 
         # constraint_builder.debugging_constraint()
 

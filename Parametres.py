@@ -13,103 +13,119 @@ class DARPDataBuilder:
 
     def base(self, x):
         return x[0] if isinstance(x, tuple) else x
-    
-    def build_t_transfer(self, t, n_requests, n_vehicles, n_trans_nodes, nodes):
+        
+    def build_t_transfer(self, t, n_requests, n_vehicles, n_trans_nodes):
         """
-        Build the extended travel-time matrix including transfer and/or charging nodes.
+        Build the extended travel-time matrix with:
+        - transfer nodes (shared or duplicated per request)
+        - charging nodes (duplicated per vehicle)
+        - zero-distance between paired transfer/charging nodes
 
         Parameters
         ----------
         t : np.ndarray
-            Base travel time matrix (n_base × n_base).
+            Base travel-time matrix (n_base × n_base)
         n_requests : int
-            Number of requests.
         n_vehicles : int
-            Number of vehicles.
-        n_trans_nodes : int
-            Number of transfer nodes per cluster.
-        duplicate_transfers : bool, optional
-            If True, each request gets its own duplicated set of transfer nodes.
-            If False, transfers are shared across requests.
-        ev_constraints : bool, optional
-            If True, also add charging station nodes for each vehicle.
+        n_trans_nodes : int   # number of transfer nodes per cluster
 
         Returns
         -------
-        t_transfer : np.ndarray
-            The full expanded travel-time matrix including transfers and (optionally) charging stations.
+        t_ext : np.ndarray
+            Extended matrix with base, transfers, and charging nodes
         """
 
-        n_base = t.shape[0]                # Base node count (P + D + depots, etc.)
-        # print("n_base is: ",n_base)
-        n_transfers = n_trans_nodes * ((n_requests-1) if self.duplicate_transfers else 0)
-        # print("n_transfers:", n_transfers)
-        n_charging = n_vehicles * n_trans_nodes if self.ev_constraints else 0
-        # print("n_charging :", n_charging)
+        # === 1. BASIC SIZES ===
+        n_base = t.shape[0]
+
+        # Transfer nodes
+        if self.duplicate_transfers:
+            n_transfer_layers = n_requests - 1       # one layer per request
+        else:
+            n_transfer_layers = 1                   # one shared layer
+
+        n_transfers = n_transfer_layers * n_trans_nodes
+
+        # Charging nodes
+        if self.ev_constraints:
+            n_charging = n_vehicles * n_trans_nodes
+        else:
+            n_charging = 0
+
+        # Total extended matrix size
         n_total = n_base + n_transfers + n_charging
-        # print("n_total", n_total)
 
-        t_transfer = np.zeros((n_total, n_total))
+        # Init extension
+        t_ext = np.full((n_total, n_total), np.inf)
+        np.fill_diagonal(t_ext, 0)
 
-        # ---- Base block ----
-        t_transfer[:n_base, :n_base] = t
-        # print("t_transfer[:n_base, :n_base]", t_transfer[:n_base, :n_base])
+        # Copy base matrix
+        t_ext[:n_base, :n_base] = t
 
-        # Index ranges for clarity
-        # trans_start = n_base
-        # trans_end = trans_start + n_transfers
-        # charge_start = trans_end
-        # charge_end = charge_start + n_charging
 
-        dimension_base_matrix = max(set(nodes[:, 0])) + 1
-        # print("dimension_base_matrix: ", dimension_base_matrix)
+        # === 2. INDEXING ===
+        trans_start   = n_base
+        trans_end     = trans_start + n_transfers
 
-        # ---- Base → Transfers ----
+        charge_start  = trans_end
+        charge_end    = charge_start + n_charging
+
+
+        # === 3. TRANSFER NODE BLOCK ===
         if n_transfers > 0:
-            if self.ev_constraints and self.duplicate_transfers:
-                n_columns = n_requests + n_vehicles - 1 ### Duplicate transfer nodes for each request and charging facilities for each vehicle
-            elif self.ev_constraints: 
-                n_columns = 1 ### Build transfer nodes and and duplicate them to have a charging facility at each transfer node
-            elif self.duplicate_transfers:
-                n_columns = n_requests - 1 ### duplicate alld transfer nodes for each request (no charging here)
-            else: 
-                n_columns = 0 ### Build transfer_nodes
-                
-            # print("n_columns", n_columns)
 
-            base_to_trans = np.tile(t[:, dimension_base_matrix:dimension_base_matrix + n_columns],
-                            (1, n_columns))
-            # print("base_to_trans : ", base_to_trans)
-            # print("t_transfer[:n_base, trans_start:trans_end]:", t_transfer[:n_base, n_base:n_base + n_transfers * n_columns])
-            t_transfer[:n_base, n_base : n_base + n_transfers * n_columns] = base_to_trans
+            # We duplicate the base transfer block t[T,T]
+            # Extract the transfer block from the base matrix
+            # Transfer nodes are assumed contiguous at the end of base structure
+            t_T = t[n_base - n_trans_nodes : n_base, n_base - n_trans_nodes : n_base]
 
-            trans_to_base = np.tile(t[dimension_base_matrix:dimension_base_matrix + n_columns, :],
-                                    (n_columns, 1))
-            t_transfer[n_base : n_base + n_transfers * n_columns, :n_base] = trans_to_base
+            # --- Transfer → Transfer (tiled by number of layers)
+            t_ext[trans_start:trans_end, trans_start:trans_end] = \
+                np.tile(t_T, (n_transfer_layers, n_transfer_layers))
 
-            trans_block = np.tile(t[dimension_base_matrix:dimension_base_matrix + n_columns, dimension_base_matrix:dimension_base_matrix + n_columns],
-                                (n_columns, n_columns))
-            t_transfer[n_base : n_base + n_transfers * n_columns, n_base : n_base + n_transfers * n_columns] = trans_block
+            # --- Base → Transfer (tiled horizontally)
+            t_base_to_T = t[:, n_base - n_trans_nodes : n_base]
+            t_ext[:n_base, trans_start:trans_end] = \
+                np.tile(t_base_to_T, n_transfer_layers)
 
-        # # ---- Base ↔ Charging stations ----
-        # if self.ev_constraints and n_charging > 0:
-        #     base_to_charge = np.tile(t[:, dimension_base_matrix:dimension_base_matrix + n_trans_nodes], (1, n_vehicles))
-        #     charge_to_base = np.tile(t[dimension_base_matrix:dimension_base_matrix + n_trans_nodes, :], (n_vehicles, 1))
-        #     charge_block = np.tile(t[dimension_base_matrix:dimension_base_matrix + n_trans_nodes, dimension_base_matrix:dimension_base_matrix + n_trans_nodes],
-        #                         (n_vehicles, n_vehicles))
+            # --- Transfer → Base (tiled vertically)
+            t_T_to_base = t[n_base - n_trans_nodes : n_base, :]
+            t_ext[trans_start:trans_end, :n_base] = \
+                np.tile(t_T_to_base, (n_transfer_layers, 1))
 
-        #     # Base → Chargers
-        #     t_transfer[:n_base, charge_start:charge_end] = base_to_charge
-        #     # Chargers → Base
-        #     t_transfer[charge_start:charge_end, :n_base] = charge_to_base
-        #     # Chargers ↔ Chargers
-        #     t_transfer[charge_start:charge_end, charge_start:charge_end] = charge_block
 
-            # Optionally connect transfers ↔ chargers (only if both exist)
-            # if n_transfers > 0:
-            #     t_transfer[trans_start:trans_end, charge_start:charge_end] = np.mean(charge_block)
-            #     t_transfer[charge_start:charge_end, trans_start:trans_end] = np.mean(charge_block)
-        return t_transfer
+        # === 4. CHARGING NODES BLOCK ===
+        if n_charging > 0:
+
+            # Charging nodes = transfer nodes duplicated per vehicle
+            # Each transfer node k gives charging nodes: k1, k2, ..., kV
+
+            # --- Transfer ↔ Charging: zero distance (same location)
+            for v in range(n_vehicles):
+                offset = charge_start + v * n_trans_nodes
+
+                # zero distance transfer_i <-> charging_{i,v}
+                for i in range(n_transfers):
+                    t_ext[trans_start + i, offset + (i % n_trans_nodes)] = 0
+                    t_ext[offset + (i % n_trans_nodes), trans_start + i] = 0
+
+            # --- Charging ↔ Charging block (copy transfer distances)
+            t_ext[charge_start:charge_end, charge_start:charge_end] = \
+                np.tile(t_T, (n_vehicles, n_vehicles))
+
+            # --- Base → Charging
+            t_base_to_T = t[:, n_base - n_trans_nodes : n_base]
+            t_ext[:n_base, charge_start:charge_end] = \
+                np.tile(t_base_to_T, n_vehicles)
+
+            # --- Charging → Base
+            t_T_to_base = t[n_base - n_trans_nodes : n_base, :]
+            t_ext[charge_start:charge_end, :n_base] = \
+                np.tile(t_T_to_base, (n_vehicles, 1))
+
+
+        return t_ext
+
     
     def build_nodes(self, base_nodes, n_requests, n_vehicles, n_trans_nodes):
 
@@ -147,12 +163,12 @@ class DARPDataBuilder:
             for r in range(1, n_requests + 1):
                 for t_id in range(n_trans_nodes):
                     node_id = transfer_start_id + (r - 1) * n_trans_nodes + t_id
-                    transfers.append([node_id, "transfer", str(r), "", "", 5, 0])
+                    transfers.append([node_id, "transfer", str(r), 0, 86400, 5, 0])
         else:
             # Single shared set of transfers
             for t_id in range(n_trans_nodes):
                 node_id = transfer_start_id + t_id
-                transfers.append([node_id, "transfer", "", "", "", 5, 0])
+                transfers.append([node_id, "transfer", "", 0, 86400, 5, 0])
 
         # --- CHARGING STATIONS ---
         if self.ev_constraints:
@@ -653,7 +669,7 @@ class DARPDataBuilder:
         Cr = None
 
         # Build matrices and nodes
-        t_transfer = self.build_t_transfer(t, n_requests, n_vehicles, n_trans_nodes, nodes)
+        t_transfer = self.build_t_transfer(t, n_requests, n_vehicles, n_trans_nodes)
         # print("t_transfer: ",t_transfer)
         nodes = self.build_nodes(nodes, n_requests, n_vehicles, n_trans_nodes)
         # print("nodes after nuild_nodes :", nodes)
@@ -685,11 +701,12 @@ class DARPDataBuilder:
         M = 100000
         n = len(P)
         # Electric Vehicle Constants
-        C_bat_kWh = 100 # Battery Capacity in kWh
+        C_bat_kWh = 14.85 # Battery Capacity in kWh 
         C_bat = C_bat_kWh*(60*60) # Battery Capacity in kWs
-        alpha = 200 # Charging Power in kW
-        beta = 15 # Average Power in kW
+        alpha = 2.97 # Charging Power in kW (Recharge complète en 5 heures donc puissance de recharge de 14,85kWh/5 heures = 2,97 kW)
+        beta = 0.055 * 60 # Average Power in kW (0,055 kWh par minute = 3,3 kW)
         gamma = 0.1 # Minimum battery capacity set at 10%
+        gamma_end = 0.7 # Minimum battery Capacity at end Depot
 
         # --- Dataset with all variants included ---
 
@@ -726,6 +743,7 @@ class DARPDataBuilder:
             params["alpha"] = alpha
             params["beta"] = beta
             params["gamma"] = gamma
+            params['gamma_end'] = gamma_end
         if self.use_imjn:
             params['Departures'] = Departures
         else: params['Departures'] = None
@@ -741,7 +759,7 @@ if __name__ == "__main__":
     builder = DARPDataBuilder(
         duplicate_transfers=False,
         arc_elimination=True,
-        ev_constraints=False,
+        ev_constraints=True,
         use_imjn=True,
         MoPS=False
     )
@@ -750,7 +768,7 @@ if __name__ == "__main__":
     print("Node definition:", sets['nodes'])
     print("Number of nodes:", len(sets["N"]))
     # print("Number of arcs:", len(sets["A"]))
-    # print("Travel time dict size:", len(params["tij"]))
+    print("Travel time dict:", params["tij"])
     # print("f_ir:", params['fi_r'])
     # print("tij: ", params['tij'])
     # print("ei:", params['ei'])
@@ -777,7 +795,7 @@ if __name__ == "__main__":
     # request_arcs = {(i,j) for (i,j) in DAR_arcs if not (i == sets['zeroDepot'] or j == sets['endDepot'])}
     # for (i, j) in request_arcs:
     #     t = 1
-    #     # print(i, j)
+    #     print(i, j)
     # DAR_depot_arcs = {(i, j) for (i, j) in DAR_arcs if (i, j) not in request_arcs}
     # for (i, j) in transfer_arcs:
     #     print(i, j)

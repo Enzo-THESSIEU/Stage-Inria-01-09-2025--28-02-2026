@@ -4,6 +4,7 @@ import time as t
 import itertools
 import gurobipy as gb
 import pandas as pd
+import ast
 
 from Model import DARPModelBuilder
 from routes_2 import DARPRouteExtractor
@@ -213,15 +214,19 @@ class DARPExperimentRunner:
             self.m, self.vars_, self.sets, self.params, options=params
         )
 
-        constrained, problems = debugger.compute_constraint_balance()
-        vflow, vprob = debugger.check_flow_conservation()
+        # constrained, problems = debugger.compute_constraint_balance()
+        # vflow, vprob = debugger.check_flow_conservation()
         debugger.print_z_variable_summary(model_name)
 
         routedbg = DARPRouteDebugging(
             m=self.m, vars_=self.vars_, sets=self.sets, params=self.params, options=params
         )
 
-        v1, v2 = routedbg.extract_vehicle_route_final()
+        if params['ev_constraints']:
+            v1, v2 = routedbg.extract_vehicle_route_final_ev()
+        else:
+            v1, v2 = routedbg.extract_vehicle_route_final()
+        
         r1, r2, r3, r4 = routedbg.extract_request_route_final()
         z1 = routedbg.extract_PT_route_final()
 
@@ -241,19 +246,220 @@ class DARPExperimentRunner:
             "PT": str(z1)
         }
 
-        self.debugging_data = {
-            "constraint_balance": constrained,
-            "constraint_problems": problems,
-            "flow_balance": vflow,
-            "flow_problems": vprob
-        }
+        # self.debugging_data = {
+        #     "constraint_balance": constrained,
+        #     "constraint_problems": problems,
+        #     "flow_balance": vflow,
+        #     "flow_problems": vprob
+        # }
 
     # ---------------------------
     # 4 — PRINT & STORE
     # ---------------------------
 
     def print_data(self, params, model_name):
-        print(self.result)
+        if params['ev_constraints']:
+                
+            def print_routes_ev():
+
+                print("\n========================")
+                print("=== VEHICLE ROUTES ====")
+                print("========================\n")
+
+                # -----------------------------------------------------------
+                # 1. VEHICLE ROUTES
+                # -----------------------------------------------------------
+                for key, item in self.result.items():
+                    if not key.startswith("Veh"):
+                        continue
+
+                    print(f"{key}:")
+
+                    try:
+                        route = ast.literal_eval(item)
+                    except Exception as e:
+                        print(f"  [Parse error for {key}]: {e}")
+                        print()
+                        continue
+
+                    for step in route:
+                        # Expecting:
+                        # [ [i,j], i, node_type, req, T, soc, charge_time, pct ]
+                        arc, node, node_type, req, T, soc, charge_time, pct = step
+
+                        label = f"{node}"
+
+                        if node_type == "pickup":
+                            node_type_fmt = f"pickup({req})"
+                        elif node_type == "dropoff":
+                            node_type_fmt = f"dropoff({req})"
+                        else:
+                            node_type_fmt = node_type
+
+                        base_line = f"  {label:<8} {node_type_fmt:<20} T={T:<7.1f} SOC={soc:5.1f}"
+
+                        if node_type == "charging station":
+                            base_line += f"   ChargeTime={charge_time:.1f}   +{pct:.1f}%"
+
+                        print(base_line)
+
+                    print()
+
+                # -----------------------------------------------------------
+                # 2. REQUEST ROUTES
+                # -----------------------------------------------------------
+                print("\n========================")
+                print("=== REQUEST ROUTES ====")
+                print("========================\n")
+
+                for key, item in self.result.items():
+                    if not key.startswith("Req"):
+                        continue
+
+                    print(f"{key}:")
+
+                    try:
+                        req_list = ast.literal_eval(item)
+                    except Exception as e:
+                        print(f"  [Parse error for {key}]: {e}")
+                        continue
+
+                    # Format: [[r, [(i,m),(j,n)]], ...]
+                    for segment in req_list:
+                        if len(segment) != 2:
+                            continue
+
+                        r_id, arcs = segment
+                        print(f" {arcs[0]} -> {arcs[1]}")
+                    print()
+
+                # -----------------------------------------------------------
+                # 3. PT ROUTES (Public Transport Arcs)
+                # -----------------------------------------------------------
+                print("\n========================")
+                print("=== PT ROUTES (z=1) ===")
+                print("========================\n")
+
+                if "PT" in self.result:
+                    try:
+                        pt_list = ast.literal_eval(self.result["PT"])
+                    except Exception as e:
+                        print(f"  [Parse error for PT]: {e}")
+                        return
+
+                    for elem in pt_list:
+                        # elem = [((i,m),(j,n)), 'Departure X', 'T(i)=..', 'T(j)=..', 'z=1']
+                        try:
+                            arc, dep, Ti, Tj, z = elem
+                            print(f"  {arc[0]} -> {arc[1]}   {dep},  {Ti},  {Tj},  {z}")
+                        except:
+                            print(f"  {elem}")
+
+                print("\n=== END OF ROUTES ===\n")
+
+            print_routes_ev()
+
+        else:
+
+            def print_routes_no_ev():
+
+                print("\n========================")
+                print("=== VEHICLE ROUTES ====")
+                print("========================\n")
+
+                # -----------------------------------------------------------
+                # 1. VEHICLE ROUTES (no EV fields)
+                # -----------------------------------------------------------
+                for key, item in self.result.items():
+                    if not key.startswith("Veh"):
+                        continue
+
+                    print(f"{key}:")
+
+                    try:
+                        route = ast.literal_eval(item)
+                    except Exception as e:
+                        print(f"  [Parse error for {key}]: {e}")
+                        print()
+                        continue
+
+                    for step in route:
+                        # EV OFF → format is:
+                        # [ [i,j], i, node_type, req, T, soc ]
+                        try:
+                            arc, node, node_type, req, T, soc = step[:6]
+                        except Exception:
+                            print(f"  [Unexpected format in step: {step}]")
+                            continue
+
+                        label = f"{node}"
+
+                        if node_type == "pickup":
+                            node_type_fmt = f"pickup({req})"
+                        elif node_type == "dropoff":
+                            node_type_fmt = f"dropoff({req})"
+                        else:
+                            node_type_fmt = node_type
+
+                        print(f"  {label:<8} {node_type_fmt:<20}  T={T:<7.1f} SOC={soc:5.1f}")
+
+                    print()
+
+                # -----------------------------------------------------------
+                # 2. REQUEST ROUTES
+                # -----------------------------------------------------------
+                print("\n========================")
+                print("=== REQUEST ROUTES ====")
+                print("========================\n")
+
+                for key, item in self.result.items():
+                    if not key.startswith("Req"):
+                        continue
+
+                    print(f"{key}:")
+
+                    try:
+                        req_list = ast.literal_eval(item)
+                    except Exception as e:
+                        print(f"  [Parse error for {key}]: {e}")
+                        continue
+
+                    # [[req_id, [(i,m),(j,n)]], ...]
+                    for segment in req_list:
+                        if len(segment) != 2:
+                            continue
+
+                        r_id, arcs = segment
+                        print(f"     {arcs[0]} -> {arcs[1]}")
+                    print()
+
+                # -----------------------------------------------------------
+                # 3. PT ROUTES
+                # -----------------------------------------------------------
+                print("\n========================")
+                print("=== PT ROUTES (z=1) ===")
+                print("========================\n")
+
+                if "PT" in self.result:
+                    try:
+                        pt_list = ast.literal_eval(self.result["PT"])
+                    except Exception as e:
+                        print(f"  [Parse error for PT]: {e}")
+                        return
+
+                    for elem in pt_list:
+                        # elem = [((i,m),(j,n)), 'Departure x', Ti, Tj, 'z=1']
+                        try:
+                            arc, dep, Ti, Tj, z = elem
+                            print(f"  {arc[0]} -> {arc[1]}   {dep},  {Ti},  {Tj},  {z}")
+                        except:
+                            print(f"  {elem}")
+
+                print("\n=== END OF ROUTES ===\n")
+
+            print_routes_no_ev()
+
+
         self.logger.log_dict(self.result, model_name)
 
         # streaming: write row immediately
@@ -264,10 +470,11 @@ class DARPExperimentRunner:
         )
         extractor.summarize()
 
+
         # print(self.debugging_data)
 
         self.results.append(self.result)
-        self.debugging_data_all.append(self.debugging_data)
+        # self.debugging_data_all.append(self.debugging_data)
 
     # ---------------------------
     # MAIN EXECUTION PIPELINES
@@ -345,16 +552,16 @@ class DARPExperimentRunner:
 
 # === Example usage ===
 if __name__ == "__main__":
-    TIME_LIMIT = 4 * 60 * 60
+    TIME_LIMIT = 2 * 60 * 60
     bool_params_singular = {
-        "duplicate_transfers": True,
+        "duplicate_transfers": False,
         "arc_elimination": True,
         "variable_substitution": True,
         "subtour_elimination": False,
         "transfer_node_strengthening": False,
-        "ev_constraints": True,
-        "timetabled_departures": False,
-        "use_imjn": False,
+        "ev_constraints": False,
+        "timetabled_departures": True,
+        "use_imjn": True,
         "MoPS": False
     }
 
