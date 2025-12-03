@@ -1,6 +1,7 @@
 import gurobipy as gb
 from Parametres import DARPDataBuilder
 from Constraints import DARPConstraintBuilder
+from LNS import initial_solution, translate_LNS_to_Gurobi
 
 ### Rewritten as classes
 
@@ -96,7 +97,7 @@ class DARPModelBuilder:
         if MoPS:
             constraint_builder.add_MoPS_constraints()
 
-        constraint_builder.base_model_optimal_solution_constrainer_paper()
+        # constraint_builder.base_model_optimal_solution_constrainer_paper()
 
         # constraint_builder.debugging_constraint()
 

@@ -236,7 +236,8 @@ class DARPRouteDebugging:
         def soc(i):
             """Battery % at node i."""
             if i in B_node:
-                return round(B_node[i].X / C_bat * 100, 1)
+                # return round(B_node[i].X / C_bat * 100, 2)
+                return round(B_node[i].X / C_bat * 100, 3)
             return None
 
         def charge_info(i, node_type):
@@ -682,3 +683,82 @@ class DARPRouteDebugging:
 
             # === Return ordered routes ===
             
+    def ev_constraints_issue(self):
+        # === Shortcuts ===
+        zeroDepot = self.sets["zeroDepot"]
+        endDepot = self.sets["endDepot"]
+        K = self.sets["K"]
+        F = self.sets["F"]
+
+        T_node = self.vars_["T_node"]
+        B_node = self.vars_["B_node"]
+        E_node = self.vars_["E_node"]
+
+        C_bat = self.params["C_bat"]
+        alpha = self.params["alpha"]
+        beta  = self.params['beta']
+        tij   = self.params['tij']
+
+        ev_constraint_list = []
+
+        if self.variable_substitution:
+            # ------------------------------------------
+            # CASE 1: Using v[i,j]
+            # ------------------------------------------
+            v = self.vars_["v"]
+
+            for (i, j), var in v.items():
+                if var.X > 0.5:
+                    ev_constraint = []
+                    ev_constraint.append(f"ARC USED: {(i,j)}")
+
+                    # Battery values
+                    Bi = round(B_node[i].X, 3)
+                    Bj = round(B_node[j].X, 3)
+                    ev_constraint.append(f"  Battery at {i}: {Bi}")
+                    ev_constraint.append(f"  Battery at {j}: {Bj}")
+
+                    # Travel consumption
+                    t_ij = tij[(self.base(i), self.base(j))]
+                    theoretical = round(beta * t_ij, 3)
+                    actual = round(Bj - Bi, 3)
+                    constraint_val = round((Bj - Bi + beta * t_ij), 3)
+
+                    ev_constraint.append(f"  Theoretical consumption: {theoretical}")
+                    ev_constraint.append(f"  Actual ΔB: {actual}")
+                    ev_constraint.append(f"  Constraint: {constraint_val}")
+
+                    ev_constraint_list.append(ev_constraint)
+
+        else:
+            # ------------------------------------------
+            # CASE 2: Using x[k,i,j]
+            # ------------------------------------------
+            x = self.vars_["x"]
+
+            # Loop over all arcs (k,i,j)
+            for (k, i, j), var in x.items():
+                if var.X > 0.5:
+                    ev_constraint = []
+                    ev_constraint.append(f"ARC USED: vehicle {k}, {(i,j)}")
+
+                    # Battery values
+                    Bi = round(B_node[i].X, 3)
+                    Bj = round(B_node[j].X, 3)
+                    ev_constraint.append(f"  Battery at {i}: {Bi}")
+                    ev_constraint.append(f"  Battery at {j}: {Bj}")
+
+                    # Travel consumption
+                    t_ij = tij[(self.base(i), self.base(j))]
+                    theoretical = round(beta * t_ij, 3)
+                    actual = round(Bj - Bi, 3)
+                    constraint_val = round((Bj - Bi + beta * t_ij), 3)
+
+                    ev_constraint.append(f"  Theoretical consumption: {theoretical}")
+                    ev_constraint.append(f"  Actual ΔB: {actual}")
+                    ev_constraint.append(f"  Constraint: {constraint_val}")
+
+                    ev_constraint_list.append(ev_constraint)
+
+        return ev_constraint_list
+

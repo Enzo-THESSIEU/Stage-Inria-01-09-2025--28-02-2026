@@ -1,6 +1,7 @@
 import numpy as np
 import random as rd
 import math as m
+from collections import deque
 
 class initial_solution:
     def __init__(self, m , vars_, sets, params, **IDARPoptions):
@@ -17,11 +18,16 @@ class initial_solution:
         self.timetabled_departures = IDARPoptions.get("timetabled_departures", False)
         self.use_imjn = IDARPoptions.get("use_imjn", False)
         self.MoPS = IDARPoptions.get("MoPS", False)
+
         self.n_veh = len(self.sets['K'])
-        self.vehicle_route = np.array([ self.params['zeroDepot_node'] ], self.n_veh)
-        self.vehicle_current_requests = np.array(self.n_veh, dtype=np.array)
-        self.loc = np.array([ self.params['zeroDepot_node'] ], self.n_veh)
-        self.load = np.zeros(self.n_veh)
+
+        # --- FIXED AND SAFE ---
+        zero = self.sets['zeroDepot']
+
+        self.vehicle_route = [[zero] for _ in range(self.n_veh)]
+        self.vehicle_current_requests = [[] for _ in range(self.n_veh)]
+        self.loc = [zero for _ in range(self.n_veh)]
+        self.load = [0 for _ in range(self.n_veh)]
 
     def base(self, i):
         return i[0] if isinstance(i, tuple) else i
@@ -35,62 +41,232 @@ class initial_solution:
 
     def closest_dropoff(self, v):
         closest_drop = None
-        min_time = float('inf')  # Initialise with infinity to ensure any valid time will be smaller
+        min_time = float('inf')
         tij = self.params['tij']
+        pair_pi_di = self.params['pair_pi_di']
+
+        if len(self.vehicle_current_requests[v]) == 0:
+            return None
+
+        curr = self.base(self.loc[v])
 
         for req in self.vehicle_current_requests[v]:
-            drop_node = self.params['pair_pi_di'][req]
-            current_time = tij[self.base(self.loc[v]), self.base(drop_node)]
+            if self.use_imjn:
+                drop_node = pair_pi_di[(req, 1)]
+            else:
+                drop_node = pair_pi_di[req]
+            if drop_node is None:
+                continue
 
-            if current_time < min_time:
-                min_time = current_time
+            i = curr
+            j = self.base(drop_node)
+
+            # Key-safe lookup
+            if (i, j) not in tij:
+                continue
+
+            if tij[i, j] < min_time:
+                min_time = tij[i, j]
                 closest_drop = drop_node
 
         return closest_drop
-    
+
     def closest_vehicle(self, p):
         closest = None
         dist_closest = float('inf')
         tij = self.params['tij']
-        for v in range(self.n_veh):
-            if tij[self.base(self.loc[v]) , self.base(p)] < dist_closest:
-                closest = v
-        return closest
-    
-    ### === Algorithm 2 in Overleaf: Closest Request Greedy Heuristic === ###
 
+        for v in range(self.n_veh):
+            i = self.base(self.loc[v])
+            j = self.base(p)
+
+            # Key-safe lookup
+            if (i, j) not in tij:
+                continue
+
+            if tij[i, j] < dist_closest:
+                closest = v
+                dist_closest = tij[i, j]
+
+        # Fallback if no arc found
+        if closest is None:
+            return 0
+
+        return closest
+
+
+    ### === Algorithm 2 in Overleaf: Closest Request Greedy Heuristic === ###
     def closest_request_greedy_heuristic(self):
+
         tij = self.params['tij']
-        self.unserved_pickups = self.order_by_earliest_time_window(self.sets['P'])
+        pair_pi_di = self.params['pair_pi_di']
+
+        # ---- PHASE 1: Serve all pickups ----
+        self.unserved_pickups = deque(self.order_by_earliest_time_window(self.sets['P']))
+        print(f"Ordered pickups is {self.unserved_pickups}")
+
         while self.unserved_pickups:
-            p = self.unserved_pickups.pop()
-            closest_vehicle = self.closest_vehicle(p)
-            closest_dropoff = self.closest_dropoff(closest_vehicle)
-            if tij[self.base(self.loc[closest_vehicle]), self.base(p)] < tij[self.base(self.loc[closest_vehicle]), self.base(closest_dropoff)]:
-                self.loc[closest_vehicle] = p
-                self.vehicle_route[closest_vehicle].append(p)
+            p = self.unserved_pickups.popleft()
+            v = self.closest_vehicle(p)
+            drop = self.closest_dropoff(v)
+            # print(f"Pickup node is {p}, dropoff node is {drop}, closest vehicle to pickup is {v}")
+
+            # Case 1: No dropoff available → always go pick up
+            if drop is None:
+                self.vehicle_route[v].append(p)
+                self.vehicle_current_requests[v].append(self.base(p))
+                self.loc[v] = p
+                continue
+
+            # Retrieve indices
+            curr = self.base(self.loc[v])
+            bp = self.base(p)
+            bd = self.base(drop)
+
+            # Safe lookup
+            dist_p = tij[curr, bp] if (curr, bp) in tij else float('inf')
+            dist_d = tij[curr, bd] if (curr, bd) in tij else float('inf')
+
+            # Case 2: pickup is closer
+            if dist_p < dist_d:
+                # print(f"dist_p < dist_d: {dist_p} < {dist_d}")
+                self.vehicle_route[v].append(p)
+                self.vehicle_current_requests[v].append(self.base(p))
+                self.loc[v] = p
+
+            # Case 3: dropoff closer → serve dropoff and postpone pickup
             else:
-                self.loc[closest_vehicle] = closest_dropoff
-                self.vehicle_route[closest_vehicle].append(closest_dropoff)
-                self.unserved_pickups.add(p)
+                # print(f"dist_p > dist_d: {dist_p} > {dist_d}")
+                self.vehicle_route[v].append(drop)
+                self.loc[v] = drop
+                self.unserved_pickups.appendleft(p)
+
+                # remove its request id
+                req = None
+                for key, val in pair_pi_di.items():
+                    if self.base(val) == bd:
+                        req = self.base(key)
+                        break
+                if req in self.vehicle_current_requests[v]:
+                    self.vehicle_current_requests[v].remove(req)
+
+        # for v in range(self.n_veh):
+            # print(f" For vehicle {v}, the current route is {self.vehicle_route[v]}, and the current requests onboard are {self.vehicle_current_requests[v]}")
+
+        # ===================================================================
+        # ---- PHASE 2: Serve all remaining dropoffs AFTER all pickups ------
+        # ===================================================================
+
+        for v in range(self.n_veh):
+
+            while len(self.vehicle_current_requests[v]) > 0:
+
+                drop = self.closest_dropoff(v)
+                # print(f"The closest dropoff node for vehicle {v} is {drop}")
+                if drop is None:
+                    break  # shouldn't happen but safe guard
+
+                bd = self.base(drop)
+                self.vehicle_route[v].append(drop)
+                self.loc[v] = drop
+
+                # Remove dropped request
+                req = None
+                for key, val in pair_pi_di.items():
+                    if self.base(val) == bd:
+                        req = self.base(key)
+                        break
+                if req in self.vehicle_current_requests[v]:
+                    self.vehicle_current_requests[v].remove(req)
+
+        # ===================================================================
+        # ---- PHASE 3: Send all vehicles to end depot -----------------------
+        # ===================================================================
+
+        end_depot = self.sets['endDepot']
+
+        for v in range(self.n_veh):
+            self.vehicle_route[v].append(end_depot)
+            self.loc[v] = end_depot
+
 
     ### === Algorithm 3 in Overleaf: Earliest Time window Greedy heuristic for DARP === ###
 
+    # def earliest_request_greedy_heuristic(self):
+    #     tij = self.params['tij']
+    #     self.unserved_P = self.order_by_earliest_time_window(self.sets['P'])
+    #     self.unserved_D = self.order_by_earliest_time_window(self.sets['D'])
+    #     self.unserved_P_and_D = self.unserved_P + self.unserved_D
+    #     while self.unserved_P_and_D:
+    #         next_node = self.unserved_P_and_D.pop()
+    #         if next_node in self.unserved_D:
+    #             pickup_node = next((k for k, v in self.params['pair_pi_di'].items() if v == next_node), None)
+    #             vehicle_index = next((v for v, route in enumerate(self.vehicle_route) if pickup_node in route), None)
+    #             self.vehicle_route[vehicle_index].append(next_node)
+    #         else:
+    #             next_vehicle = self.closest_vehicle(next_node)
+    #             self.vehicle_route[next_vehicle].append(next_node)
+    #             self.loc[next_vehicle] = next_node
+
+
+
     def earliest_request_greedy_heuristic(self):
         tij = self.params['tij']
-        self.unserved_P = self.order_by_earliest_time_window(self.sets['P'])
-        self.unserved_D = self.order_by_earliest_time_window(self.sets['D'])
-        self.unserved_P_and_D = self.unserved_P + self.unserved_D
+        pair_pi_di = self.params['pair_pi_di']
+
+        # Sort by earliest time window and convert to deque
+        unserved_P = deque(self.order_by_earliest_time_window(self.sets['P']))
+        unserved_D = deque(self.order_by_earliest_time_window(self.sets['D']))
+
+        # Combine preserving order: P first, then D
+        # (request dropoffs can be visited only after their pickups)
+        self.unserved_P_and_D = deque(list(unserved_P) + list(unserved_D))
+
         while self.unserved_P_and_D:
-            next_node = self.unserved_P_and_D.pop()
-            if next_node in self.unserved_D:
-                pickup_node = next((k for k, v in self.params['pair_pi_di'].items() if v == next_node), None)
-                vehicle_index = next((v for v, route in enumerate(self.vehicle_route) if pickup_node in route), None)
+
+            # Pop earliest node
+            next_node = self.unserved_P_and_D.popleft()
+
+            # CASE 1: next_node is a dropoff
+            if next_node in unserved_D:
+
+                # find pickup node for it
+                pickup_node = next((k for k, v in pair_pi_di.items()
+                                    if self.base(v) == self.base(next_node)), None)
+
+                # find vehicle that served pickup
+                vehicle_index = None
+                for v_idx, route in enumerate(self.vehicle_route):
+                    if pickup_node in route:
+                        vehicle_index = v_idx
+                        break
+
+                if vehicle_index is None:
+                    # no vehicle has served the pickup yet → cannot serve dropoff
+                    # push it to the back of deque
+                    self.unserved_P_and_D.append(next_node)
+                    continue
+
+                # append dropoff
                 self.vehicle_route[vehicle_index].append(next_node)
+                self.loc[vehicle_index] = next_node
+
+                # remove from "carried" requests
+                req = self.base(pickup_node)
+                if req in self.vehicle_current_requests[vehicle_index]:
+                    self.vehicle_current_requests[vehicle_index].remove(req)
+
             else:
+            # CASE 2: next_node is a pickup
+
+                # assign to closest vehicle
                 next_vehicle = self.closest_vehicle(next_node)
                 self.vehicle_route[next_vehicle].append(next_node)
                 self.loc[next_vehicle] = next_node
+
+                # mark request as being carried
+                self.vehicle_current_requests[next_vehicle].append(self.base(next_node))
+
 
     ### === Algorithm 4 in Overleaf: Cluster-Based Intial Solution === ###
 
@@ -119,7 +295,13 @@ class initial_solution:
     def define_PT_preliminary_clusters(self):
         P = self.base_set(self.sets['P'])
         D = self.base_set(self.sets['D'])
+        if self.duplicate_transfers:
+            C = sorted(self.params['Cr'][1])
+        elif self.use_imjn:
+            C = sorted(self.base_set(self.sets['C']))
         preliminary_clusters = {}
+        for node in C:
+            preliminary_clusters[node] = []
         for p in P:
             closest_node = self.find_closest_transfer_pickup(p)
             preliminary_clusters[closest_node] += [p]
@@ -133,15 +315,19 @@ class initial_solution:
                             preliminary_clusters.items(),
                             key=lambda item: len(item[1])
                         )
-        max_tij = max(tij[min(C):max(C), min(C):max(C)])
+        
+        max_tij = np.max(tij)
+
         C_score = {}
         if self.n_veh < len(C):
-            for i, i_idx in enumerate(C):
-                for j, j_idx in enumerate(C):
-                    if C_score[i, j, i_idx, j_idx]: continue
-                    else:
-                        if i_idx < j_idx:
-                            C_score[i, j, i_idx, j_idx] = (len(preliminary_clusters[i]) + len(preliminary_clusters[j])) / max_cluster + tij[i, j] / max_tij
+            for i_idx, i in enumerate(C):
+                for j_idx, j in enumerate(C):
+                    key = (i_idx, j_idx, i, j)
+                    if key in C_score:
+                        continue
+                    if i_idx < j_idx:
+                        C_score[key] = (len(preliminary_clusters[i]) + len(preliminary_clusters[j])) / len(max_cluster) + tij[i_idx][j_idx] / max_tij
+                        
         return C_score
     
     def triangle_height(self, base, side_1, side_2):
@@ -163,35 +349,64 @@ class initial_solution:
         return dist_cluster_node
 
     def calculate_new_tij(self, link, tij, C, w_i, w_j):
-        i = link[0]
-        j = link[1]
-        i_idx = link[2]
-        j_idx = link[3]
+        i_idx = link[0]
+        j_idx = link[1]
+        i = link[2]
+        j = link[3]
+        print("i_idx", i_idx)
+        print("j_idx", j_idx)
+        print("tij size", np.shape(tij))
+        print("C is", C)
+        new_dist = np.zeros(len(C))
+        for k, node in enumerate(C):
+            if k not in [i_idx, j_idx]:
+                print("Index k", k)
+                print("Node", node)
+                new_dist[k] = self.calculate_distance_new_cluster_centre_to_node(tij, k, i_idx, j_idx, w_i, w_j)
+                print(new_dist[k])
+        new_dist = np.delete(new_dist, [i_idx, j_idx], axis=0)
         tij = np.delete(tij, [i_idx, j_idx], axis=0)
         tij = np.delete(tij, [i_idx, j_idx], axis=1)
-        new_dist = np.zeros(len(C))
-        for k in len(C):
-            new_dist[k] = self.calculate_distance_new_cluster_centre_to_node(tij, k, i_idx, j_idx, w_i, w_j)
-        tij = np.concatenate((tij, new_dist), axis = 0)
-        tij = np.concatenate((tij, new_dist + [0]), axis = 1)
+        print("new dist column", new_dist)
+        print("tij after deletion", tij)
+        tij = np.hstack((tij, new_dist.reshape(-1, 1)))
+        new_row = np.append(new_dist, 0)
+        tij = np.vstack((tij, new_row))
+        print("Final tij", tij)
+
         return tij
 
     def combine_clusters(self):
         preliminary_clusters = self.define_PT_preliminary_clusters()
-        C = self.base_set(self.sets['C'])
-        tij_transfer_nodes = self.params['tij'][min(C):max(C), min(C):max(C)]
+        print(" ======================= \n")
+        print("Preliminary Clsuters is ", preliminary_clusters)
+        print(" ======================= \n")
+        if self.duplicate_transfers:
+            C = sorted(self.params['Cr'][1])
+        elif self.use_imjn:
+            C = sorted(self.base_set(self.sets['C']))
+        tij = self.params['tij']
+
+        # build dense tij submatrix for transfer nodes
+        nC = len(C)
+        tij_transfer_nodes = np.zeros((nC, nC))
+        for a, i in enumerate(C):
+            for b, j in enumerate(C):
+                tij_transfer_nodes[a, b] = tij[self.base(i), self.base(j)]
+
         while len(C) > self.n_veh:
             C_score = self.define_cluster_score(preliminary_clusters, C, tij_transfer_nodes)
             link, link_val = min(C_score.items())
-            w_i = len(preliminary_clusters[link[0]])
-            w_j = len(preliminary_clusters[link[1]])
-            C.remove(link[0], link[1])
-            C.add(link)
-            preliminary_clusters[link] = preliminary_clusters[link[0]] + preliminary_clusters[link[1]]
+            w_i = len(preliminary_clusters[link[2]])
+            w_j = len(preliminary_clusters[link[3]])
+            preliminary_clusters[(link[2], link[3])] = preliminary_clusters[link[2]] + preliminary_clusters[link[3]]
             tij_transfer_nodes = self.calculate_new_tij(link, tij_transfer_nodes, C, w_i, w_j)
+            C.remove(link[2])
+            C.remove(link[3])
+            C.append((link[2], link[3]))
             del C_score[link]
-            del preliminary_clusters[link[0]]
-            del preliminary_clusters[link[1]]
+            del preliminary_clusters[link[2]]
+            del preliminary_clusters[link[3]]
         return preliminary_clusters
     
     def find_nearest_transfer(self, node):
@@ -220,6 +435,7 @@ class initial_solution:
         return transfer_node_for_pickup_node, transfer_node_for_dropoff_node
     
     def build_subproblem_for_each_cluster(self, cluster):
+        print("Cluster is of format", cluster)
         pickup_nodes_for_cluster = []
         dropoff_nodes_for_cluster = []
         P = self.sets['P']
@@ -252,12 +468,13 @@ class initial_solution:
                                   tij[self.base(transfer_node_for_pickup_node), self.base(transfer_node_for_dropoff_node)])
                 li_cluster.append(li[self.base(dropoff_node)] -  
                                   tij[self.base(transfer_node_for_dropoff_node), self.base(dropoff_node)])
-        subproblem = np.array(len_cluster)   
+        subproblem = [[] for _ in range(len_cluster)]   
         # Build array of arrays where the format is 
         # subproblem = [... [pickup node for subproblem, dropoff node for subproblem, ei time constraint for pickup node, id for subrequest] ...]
         for sub_prob_req_idx in range(len_cluster):
-            subproblem[sub_prob_req_idx] = np.array(pickup_nodes_for_cluster[sub_prob_req_idx], dropoff_nodes_for_cluster[sub_prob_req_idx], ei_cluster[sub_prob_req_idx], sub_prob_req_idx)
-        return subproblem
+            subproblem[sub_prob_req_idx] = [pickup_nodes_for_cluster[sub_prob_req_idx], dropoff_nodes_for_cluster[sub_prob_req_idx], ei_cluster[sub_prob_req_idx], sub_prob_req_idx]
+        subproblem = sorted(subproblem, key=lambda row: row[2])
+        return deque(subproblem)
     
     def find_closest_dropoff_node_subproblem(self, pickups_in_vehicle, route, subproblem_copy):
         tij = self.params['tij']
@@ -286,8 +503,7 @@ class initial_solution:
         pickups_in_vehicle = []
         subproblem_copy = subproblem.copy()
         while len(subproblem) > 0:
-            min_idx = np.argmin([row[2] for row in subproblem])
-            next_node_list = subproblem.pop(min_idx)
+            next_node_list = subproblem.popleft()
             next_pickup = next_node_list[0]
             next_dropoff = None
             if len(pickups_in_vehicle) > 0:
@@ -295,99 +511,374 @@ class initial_solution:
             if next_dropoff == None:   ### No request inside vehicle
                 route.append(next_pickup)
                 pickups_in_vehicle.append(next_pickup)
-            elif self.calculate_capacity_vehicle + qr[next_pickup] > Q:  ### Will violate capacity constraint
+            elif self.calculate_capacity_vehicle(pickups_in_vehicle) + qr[next_pickup] > Q:  ### Will violate capacity constraint
                 route.append(next_dropoff)
-                subproblem.add(next_node_list)
+                subproblem.appendleft(next_node_list)
             elif tij[self.base(route[-1]), self.base(next_pickup)] < tij[self.base(route[-1]), self.base(next_dropoff)]:   ### pickup closer than dropoff
                 route.append(next_pickup)
                 pickups_in_vehicle.append(next_pickup)
             else:   ### Dropoff closer than pickup
                 route.append(next_dropoff)
-                subproblem.add(next_node_list)
+                subproblem.appendleft(next_node_list)
         return route
     
     def build_routes_for_clusters(self, clusters):
         routes = []
-        for cluster in clusters:
+        for cluster_id, cluster in clusters.items():
             cluster_subproblem = self.build_subproblem_for_each_cluster(cluster)
             cluster_route = self.build_route_subproblem(cluster_subproblem)
             routes.append(cluster_route)
         return routes
 
+    def Execute_Heuristic(self):
+        clusters = self.combine_clusters()
+        print(clusters)
+        routes = self.build_routes_for_clusters(clusters)
+        return routes
 
         
 class translate_LNS_to_Gurobi:
 
-    def __init__(self, vehicle_routes):
+    def __init__(self, vehicle_routes, m, vars_, sets, params, **options):
         self.vehicle_routes = vehicle_routes
         self.n_veh = len(self.vehicle_routes)
+        self.m = m
+        self.vars_ = vars_
+        self.sets = sets
+        self.params = params
+        self.variable_substitution = options.get("variable_substitution")
+        self.duplicate_transfers = options.get("duplicate_transfers")
+        self.use_imjn = options.get("use_imjn")
 
     def base(self, i):
         return i[0] if isinstance(i, tuple) else i
   
     ### === Change the routes that have been found to be understood by gurobi variables === ###
-    
+
+    def intialise_all_gurobi_binary_variables_to_one(self):
+        x, y, v, z, a = self.vars_['x'], self.vars_['y'], self.vars_['v'], self.vars_['z'], self.vars_['a']    
+        for key in x:
+            x[key].Start = 0
+
+        for key in y:
+            y[key].Start = 0
+
+        for key in v:
+            v[key].Start = 0
+
+        for key in z:
+            z[key].Start = 0
+
+        for key in a:
+            a[key].Start = 0
+
     def translate_to_gurobi_variables_x(self):
         """
         Takes self.vehicle_route[v] (a list of nodes for each vehicle)
         and assigns x or v variables = 1 accordingly.
         """
 
+        print("Running translate_to_gurobi_variables_x")
+
         x = self.vars_.get("x", None)
         v = self.vars_.get("v", None)
 
         for k in range(self.n_veh):
 
-            route = self.vehicle_route[k]
+            route = self.vehicle_routes[k]
             if len(route) <= 1:
                 continue   # nothing to assign
 
             for idx in range(len(route) - 1):
-                i = self.base(route[idx])
-                j = self.base(route[idx + 1])
+                i = route[idx]
+                j = route[idx + 1]
 
-                # Standard case: x[k,i,j] are used
-                if not self.variable_substitution:
-                    try:
-                        self.m.addConstr(x[k, i, j] == 1)
-                    except KeyError:
-                        pass  # arc not in model → ignore silently
-
-                # Variable substitution: v[i,j] used instead of x
+                if self.variable_substitution:
+                    if (i, j) in v:
+                        v[i, j].Start = 1
+                        x[k, i, j].Start = 1
+                        print(f"v[{i}, {j}] initialised to 1")
+                        print(f"x[{k}, {i}, {j}] initialised to 1")
                 else:
-                    try:
-                        self.m.addConstr(v[i, j] == 1)
-                    except KeyError:
-                        pass
+                    if (k, i, j) in x:
+                        x[k, i, j].Start = 1
+                        print(f"x[{k}, {i}, {j}] initialised to 1")
+
+    # def translate_to_gurobi_variables_y_z_duplicate_transfers(self):
+    #     """
+    #     For each request r, reconstruct its full path including:
+    #     - same-vehicle pickup → dropoff
+    #     - or pickup → transfer → PT → transfer → dropoff
+
+    #     Then set the corresponding Gurobi variables:
+    #     - y[r,i,j] = 1 for vehicle arcs used by the request
+    #     - z[r,t1,t2] = 1 for PT arcs between transfer nodes
+    #     """
+
+    #     y = self.vars_["y"]
+    #     z = self.vars_["z"]
+
+    #     pair_pi_di = self.params["pair_pi_di"]
+    #     Cr = self.params["Cr"]  # Cr per request
+
+    #     for r_pick, r_drop in pair_pi_di.items():
+
+    #         r = r_pick  # request id = pickup node id
+
+    #         # ---- STEP 1: find vehicle that visits the pickup ----
+    #         v_pick = None
+    #         idx_pick = None
+    #         for v in range(self.n_veh):
+    #             route = self.vehicle_routes[v]
+    #             for idx, node in enumerate(route):
+    #                 if self.base(node) == self.base(r_pick):
+    #                     v_pick = v
+    #                     idx_pick = idx
+    #                     break
+    #             if v_pick is not None:
+    #                 break
+
+    #         if v_pick is None:
+    #             print(f"Request {r_pick} not served")
+    #             continue  # request not served at all (should not happen)
+
+    #         route1 = self.vehicle_routes[v_pick]
+
+    #         # ---- STEP 2: search forward for the dropoff ----
+    #         idx_drop = None
+    #         for idx2 in range(idx_pick + 1, len(route1)):
+    #             if self.base(route1[idx2]) == self.base(r_drop):
+    #                 idx_drop = idx2
+    #                 break
+
+    #         # ---- CASE A: same vehicle serves pickup → dropoff ----
+    #         if idx_drop is not None:
+    #             for a in range(idx_pick, idx_drop):
+    #                 i = self.base(route1[a])
+    #                 j = self.base(route1[a+1])
+    #                 if (r, i, j) in y:
+    #                     y[r, i, j].Start = 1
+    #             continue
+
+    #         # ---- CASE B: request must transfer using PT ----
+    #         # Find first transfer node in Cr on vehicle v_pick's route
+    #         idx_t1 = None
+    #         t1 = None
+    #         for a in range(idx_pick + 1, len(route1)):
+    #             node = self.base(route1[a])
+    #             if node in Cr:
+    #                 idx_t1 = a
+    #                 t1 = node
+    #                 break
+
+    #         if t1 is None:
+    #             print(f"Request {r_pick} has an incomplete route")
+    #             print("The issue stems from pickup to transfer")
+    #             continue  # should not happen if Cr is correct
+
+    #         # Mark vehicle arcs from pickup → transfer t1
+    #         for a in range(idx_pick, idx_t1):
+    #             i = self.base(route1[a])
+    #             j = self.base(route1[a+1])
+    #             if (r, i, j) in y:
+    #                 y[r, i, j].Start = 1
+
+    #         # ---- STEP 3: find second vehicle that visits a Cr node ----
+    #         v_drop = None
+    #         idx_t2 = None
+    #         t2 = None
+
+    #         for v2 in range(self.n_veh):
+    #             route2 = self.vehicle_route[v2]
+    #             for a2, node in enumerate(route2):
+    #                 node_b = self.base(node)
+    #                 if node_b in Cr and node_b != t1:
+    #                     v_drop = v2
+    #                     idx_t2 = a2
+    #                     t2 = node_b
+    #                     break
+    #             if v_drop is not None:
+    #                 break
+
+    #         if t2 is None:
+    #             print(f"Request {r_pick} has an incomplete route")
+    #             print("The issue stems from transfer to transfer")
+    #             continue  # no second transfer → cannot serve
+
+    #         # ---- STEP 4: PT arc between t1 → t2 ----
+    #         if (t1, t2) in z:
+    #             z[t1, t2].Start = 1
+
+    #         # ---- STEP 5: continue vehicle v_drop from t2 → r_drop ----
+    #         route2 = self.vehicle_route[v_drop]
+    #         idx_final_drop = None
+
+    #         for a2 in range(idx_t2 + 1, len(route2)):
+    #             if self.base(route2[a2]) == self.base(r_drop):
+    #                 idx_final_drop = a2
+    #                 break
+
+    #         if idx_final_drop is None:
+    #             print(f"Request {r_pick} has an incomplete route")
+    #             print("The issue stems from transfer to dropoff")
+    #             continue  # incomplete second half
+
+    #         for a2 in range(idx_t2, idx_final_drop):
+    #             i = self.base(route2[a2])
+    #             j = self.base(route2[a2+1])
+    #             if (r, i, j) in y:
+    #                 y[r, i, j].Start = 1
+
+    # def translate_to_gurobi_variables_y_z_imjn(self):
+    #     """
+    #     Same as translate_to_gurobi_variables_y_z but adapted for IMJN node format,
+    #     where transfer nodes are shared across requests.
+        
+    #     For a request that changes vehicles:
+    #         - t1 = first transfer node in C visited AFTER pickup
+    #         - t2 = last  transfer node in C visited BEFORE dropoff
+    #     """
+
+    #     y = self.vars_["y"]
+    #     z = self.vars_["z"]
+    #     pair_pi_di = self.params["pair_pi_di"]
+    #     C = set(self.base(i) for i in self.sets["C"])
+
+    #     for r_pick, r_drop in pair_pi_di.items():
+
+    #         r = r_pick
+    #         base_pick = self.base(r_pick)
+    #         base_drop = self.base(r_drop)
+
+    #         # === STEP 1 — find vehicle & position of pickup ===
+    #         v_pick, idx_pick = None, None
+    #         for v in range(self.n_veh):
+    #             route = self.vehicle_routes[v]
+    #             for idx, node in enumerate(route):
+    #                 if self.base(node) == base_pick:
+    #                     v_pick = v
+    #                     idx_pick = idx
+    #                     break
+    #             if v_pick is not None:
+    #                 break
+    #         if v_pick is None:
+    #             print(f"Request {self.base(r_pick)} not served")
+    #             continue  # request not served
+
+    #         route1 = self.vehicle_routes[v_pick]
+
+    #         # === STEP 2 — does same vehicle visit dropoff? ===
+    #         idx_drop_same = None
+    #         for a in range(idx_pick + 1, len(route1)):
+    #             if self.base(route1[a]) == base_drop:
+    #                 idx_drop_same = a
+    #                 break
+
+    #         if idx_drop_same is not None:
+    #             # SAME VEHICLE: mark arcs pickup → dropoff
+    #             for a in range(idx_pick, idx_drop_same):
+    #                 i = self.base(route1[a])
+    #                 j = self.base(route1[a+1])
+    #                 if (r, i, j) in y:
+    #                     y[r, i, j].Start = 1
+    #             continue
+
+    #         # === STEP 3 — Request must transfer ===
+    #         # t1 = first transfer node after pickup
+    #         t1, idx_t1 = None, None
+    #         for a in range(idx_pick + 1, len(route1)):
+    #             node_b = self.base(route1[a])
+    #             if node_b in C:
+    #                 t1 = node_b
+    #                 idx_t1 = a
+    #                 break
+    #         if t1 is None:
+    #             print(f"Request {self.base(r_pick)} has an incomplete route")
+    #             print("The issue stems from pickup to transfer")
+    #             continue  # no transfer found → invalid route
+
+    #         # mark pickup → t1
+    #         for a in range(idx_pick, idx_t1):
+    #             i = self.base(route1[a])
+    #             j = self.base(route1[a+1])
+    #             if (r, i, j) in y:
+    #                 y[r, i, j].Start = 1
+
+    #         # === STEP 4 — find t2: last transfer before dropoff ===
+    #         v_drop, idx_drop, t2, idx_t2 = None, None, None, None
+
+    #         for v2 in range(self.n_veh):
+    #             route2 = self.vehicle_route[v2]
+    #             # first find dropoff on this vehicle
+    #             for a2, node in enumerate(route2):
+    #                 if self.base(node) == base_drop:
+    #                     v_drop = v2
+    #                     idx_drop = a2
+    #                     break
+    #             if v_drop is not None:
+    #                 # now search BACKWARDS from idx_drop for last transfer
+    #                 for a2 in range(idx_drop - 1, -1, -1):
+    #                     node_b = self.base(route2[a2])
+    #                     if node_b in C and node_b != t1:
+    #                         t2 = node_b
+    #                         idx_t2 = a2
+    #                         break
+    #                 break
+
+    #         if t2 is None:
+    #             print(f"Request {self.base(r_pick)} has an incomplete route")
+    #             print("The issue stems from transfer to transfer")
+    #             continue  # no second transfer → cannot serve request
+
+    #         # === STEP 5 — assign z[r,t1,t2] ===
+    #         # if (r, t1, t2) in z:
+    #         #     z[r, t1, t2].Start = 1
+
+    #         # === STEP 6 — from t2 → dropoff on v_drop ===
+    #         route2 = self.vehicle_route[v_drop]
+    #         for a2 in range(idx_t2, idx_drop):
+    #             i = self.base(route2[a2])
+    #             j = self.base(route2[a2+1])
+    #             if (r, i, j) in y:
+    #                 y[r, i, j].Start = 1
 
     def translate_to_gurobi_variables_y_z_duplicate_transfers(self):
         """
         For each request r, reconstruct its full path including:
-        - same-vehicle pickup → dropoff
-        - or pickup → transfer → PT → transfer → dropoff
+        - direct:  pickup -> dropoff on the same vehicle
+        - via PT: pickup -> t1 (on vehicle v_pick),
+                z[t1,t2] (PT arc),
+                t2 -> dropoff (on vehicle v_drop)
 
-        Then set the corresponding Gurobi variables:
-        - y[r,i,j] = 1 for vehicle arcs used by the request
-        - z[r,t1,t2] = 1 for PT arcs between transfer nodes
+        This is fully *route-based*, so it works for:
+        - heuristics that only generate direct routes
+        - heuristics that only generate PT routes
+        - heuristics that mix both, per request.
         """
 
         y = self.vars_["y"]
-        z = self.vars_["z"]
+        z = self.vars_.get("z", {})
 
-        pair_pi_di = self.params["pair_pi_di"]
-        Cr = self.params["Cr"]  # Cr per request
+        pair_pi_di = self.params["pair_pi_di"]      # {pickup: dropoff}
+        Cr = self.params["Cr"]                  # either dict r->iterable(C_r) or global iterable
 
         for r_pick, r_drop in pair_pi_di.items():
+            r = r_pick
+            base_pick = self.base(r_pick)
+            base_drop = self.base(r_drop)
 
-            r = r_pick  # request id = pickup node id
+            # Per-request transfer set Cr(r)
+            if isinstance(Cr, dict):
+                Cr_r = {self.base(c) for c in Cr[r]}
+            else:
+                Cr_r = {self.base(c) for c in Cr}
 
-            # ---- STEP 1: find vehicle that visits the pickup ----
-            v_pick = None
-            idx_pick = None
+            # === STEP 1 — find vehicle & position of pickup ===
+            v_pick, idx_pick = None, None
             for v in range(self.n_veh):
                 route = self.vehicle_routes[v]
                 for idx, node in enumerate(route):
-                    if self.base(node) == self.base(r_pick):
+                    if self.base(node) == base_pick:
                         v_pick = v
                         idx_pick = idx
                         break
@@ -395,114 +886,120 @@ class translate_LNS_to_Gurobi:
                     break
 
             if v_pick is None:
-                print(f"Request {r_pick} not served")
-                continue  # request not served at all (should not happen)
+                print(f"[y/z dup] Request {base_pick} not served (no pickup)")
+                continue
 
             route1 = self.vehicle_routes[v_pick]
 
-            # ---- STEP 2: search forward for the dropoff ----
-            idx_drop = None
-            for idx2 in range(idx_pick + 1, len(route1)):
-                if self.base(route1[idx2]) == self.base(r_drop):
-                    idx_drop = idx2
+            # === STEP 2 — does the same vehicle also visit the dropoff? ===
+            idx_drop_same = None
+            for a in range(idx_pick + 1, len(route1)):
+                if self.base(route1[a]) == base_drop:
+                    idx_drop_same = a
                     break
 
-            # ---- CASE A: same vehicle serves pickup → dropoff ----
-            if idx_drop is not None:
-                for a in range(idx_pick, idx_drop):
+            if idx_drop_same is not None:
+                # DIRECT CASE: same vehicle pickup -> dropoff
+                for a in range(idx_pick, idx_drop_same):
                     i = self.base(route1[a])
-                    j = self.base(route1[a+1])
+                    j = self.base(route1[a + 1])
                     if (r, i, j) in y:
                         y[r, i, j].Start = 1
-                continue
+                        print(f"y[{r}, {i}, {j}] initialised to 1")
+                continue  # go to next request
 
-            # ---- CASE B: request must transfer using PT ----
-            # Find first transfer node in Cr on vehicle v_pick's route
-            idx_t1 = None
-            t1 = None
+            # === STEP 3 — via transfer: find t1 (first Cr node after pickup on v_pick) ===
+            t1, idx_t1 = None, None
             for a in range(idx_pick + 1, len(route1)):
-                node = self.base(route1[a])
-                if node in Cr:
+                node_b = self.base(route1[a])
+                if node_b in Cr_r:
+                    t1 = node_b
                     idx_t1 = a
-                    t1 = node
                     break
 
             if t1 is None:
-                print(f"Request {r_pick} has an incomplete route")
-                print("The issue stems from pickup to transfer")
-                continue  # should not happen if Cr is correct
+                print(f"[y/z dup] Request {base_pick} incomplete: pickup->transfer (no t1 found)")
+                continue
 
-            # Mark vehicle arcs from pickup → transfer t1
+            # Mark pickup -> t1 arcs on v_pick
             for a in range(idx_pick, idx_t1):
                 i = self.base(route1[a])
-                j = self.base(route1[a+1])
+                j = self.base(route1[a + 1])
                 if (r, i, j) in y:
                     y[r, i, j].Start = 1
+                    print(f"y[{r}, {i}, {j}] initialised to 1")
 
-            # ---- STEP 3: find second vehicle that visits a Cr node ----
-            v_drop = None
-            idx_t2 = None
-            t2 = None
+            # === STEP 4 — find t2 and v_drop: last Cr node before dropoff, on some vehicle ===
+            v_drop, idx_t2, t2, idx_drop = None, None, None, None
 
             for v2 in range(self.n_veh):
-                route2 = self.vehicle_route[v2]
-                for a2, node in enumerate(route2):
-                    node_b = self.base(node)
-                    if node_b in Cr and node_b != t1:
-                        v_drop = v2
-                        idx_t2 = a2
-                        t2 = node_b
-                        break
-                if v_drop is not None:
-                    break
+                route2 = self.vehicle_routes[v2]
 
-            if t2 is None:
-                print(f"Request {r_pick} has an incomplete route")
-                print("The issue stems from transfer to transfer")
-                continue  # no second transfer → cannot serve
+                # positions of dropoff on this route
+                drop_positions = [idx for idx, node in enumerate(route2)
+                                if self.base(node) == base_drop]
+                if not drop_positions:
+                    continue
+                # take first dropoff visit on this vehicle
+                local_idx_drop = drop_positions[0]
 
-            # ---- STEP 4: PT arc between t1 → t2 ----
-            if (t1, t2) in z:
+                # candidate transfer nodes before that dropoff, excluding t1
+                transfer_positions = [idx for idx, node in enumerate(route2)
+                                    if idx < local_idx_drop
+                                    and self.base(node) in Cr_r
+                                    and self.base(node) != t1]
+                if not transfer_positions:
+                    continue
+
+                # t2 = last transfer before dropoff
+                local_idx_t2 = max(transfer_positions)
+                candidate_t2 = self.base(route2[local_idx_t2])
+
+                v_drop = v2
+                idx_t2 = local_idx_t2
+                t2 = candidate_t2
+                idx_drop = local_idx_drop
+                break  # assume unique good match
+
+            if t2 is None or v_drop is None:
+                print(f"[y/z dup] Request {base_pick} incomplete: transfer->transfer (no t2 found)")
+                continue
+
+            # === STEP 5 — PT arc between t1 -> t2 ===
+            # z can be indexed as (t1,t2) or (r,t1,t2) depending on your model.
+            # Here we first try (r,t1,t2), then (t1,t2).
+            if (r, t1, t2) in z:
+                z[r, t1, t2].Start = 1
+            elif (t1, t2) in z:
                 z[t1, t2].Start = 1
 
-            # ---- STEP 5: continue vehicle v_drop from t2 → r_drop ----
-            route2 = self.vehicle_route[v_drop]
-            idx_final_drop = None
-
-            for a2 in range(idx_t2 + 1, len(route2)):
-                if self.base(route2[a2]) == self.base(r_drop):
-                    idx_final_drop = a2
-                    break
-
-            if idx_final_drop is None:
-                print(f"Request {r_pick} has an incomplete route")
-                print("The issue stems from transfer to dropoff")
-                continue  # incomplete second half
-
-            for a2 in range(idx_t2, idx_final_drop):
+            # === STEP 6 — mark arcs t2 -> dropoff on v_drop ===
+            route2 = self.vehicle_routes[v_drop]
+            for a2 in range(idx_t2, idx_drop):
                 i = self.base(route2[a2])
-                j = self.base(route2[a2+1])
+                j = self.base(route2[a2 + 1])
                 if (r, i, j) in y:
                     y[r, i, j].Start = 1
+                    print(f"y[{r}, {i}, {j}] initialised to 1")
 
     def translate_to_gurobi_variables_y_z_imjn(self):
         """
-        Same as translate_to_gurobi_variables_y_z but adapted for IMJN node format,
-        where transfer nodes are shared across requests.
-        
-        For a request that changes vehicles:
-            - t1 = first transfer node in C visited AFTER pickup
-            - t2 = last  transfer node in C visited BEFORE dropoff
+        IMJN version (shared transfer nodes):
+        - auto-detect direct vs via-transfer per request
+        - if via-transfer:
+                t1 = first transfer in C after pickup on v_pick
+                t2 = last  transfer in C before dropoff on v_drop
+        - only sets y; z is intentionally ignored for IMJN.
         """
 
+        print("Running correctly translate_to_gurobi_variables_y_z_imjn")
+
         y = self.vars_["y"]
-        z = self.vars_["z"]
         pair_pi_di = self.params["pair_pi_di"]
-        C = set(self.base(i) for i in self.sets["C"])
+        C = self.sets["C"]   # global set of transfer nodes
 
         for r_pick, r_drop in pair_pi_di.items():
-
-            r = r_pick
+            request = self.base(r_pick)
             base_pick = self.base(r_pick)
             base_drop = self.base(r_drop)
 
@@ -517,13 +1014,14 @@ class translate_LNS_to_Gurobi:
                         break
                 if v_pick is not None:
                     break
+
             if v_pick is None:
-                print(f"Request {self.base(r_pick)} not served")
-                continue  # request not served
+                print(f"[y/z imjn] Request {base_pick} not served (no pickup)")
+                continue
 
             route1 = self.vehicle_routes[v_pick]
 
-            # === STEP 2 — does same vehicle visit dropoff? ===
+            # === STEP 2 — direct case: same vehicle visits dropoff ===
             idx_drop_same = None
             for a in range(idx_pick + 1, len(route1)):
                 if self.base(route1[a]) == base_drop:
@@ -531,75 +1029,87 @@ class translate_LNS_to_Gurobi:
                     break
 
             if idx_drop_same is not None:
-                # SAME VEHICLE: mark arcs pickup → dropoff
+                # print(f"Direct route found for request {request}")
+                # DIRECT: pickup -> dropoff on v_pick
                 for a in range(idx_pick, idx_drop_same):
-                    i = self.base(route1[a])
-                    j = self.base(route1[a+1])
-                    if (r, i, j) in y:
-                        y[r, i, j].Start = 1
-                continue
+                    i = route1[a]
+                    j = route1[a + 1]
+                    # print((i,j))
+                    if (request, i, j) in y:
+                        y[request, i, j].Start = 1
+                        print(f"y[{request}, {i}, {j}] initialised to 1")
+                    else:
+                        print(f"{(request, i, j)} not in y")
+                continue  # next request
 
-            # === STEP 3 — Request must transfer ===
-            # t1 = first transfer node after pickup
+            # === STEP 3 — via-transfer: t1 = first C node after pickup on v_pick ===
             t1, idx_t1 = None, None
             for a in range(idx_pick + 1, len(route1)):
-                node_b = self.base(route1[a])
+                node_b = route1[a]
                 if node_b in C:
                     t1 = node_b
                     idx_t1 = a
                     break
+
             if t1 is None:
-                print(f"Request {self.base(r_pick)} has an incomplete route")
-                print("The issue stems from pickup to transfer")
-                continue  # no transfer found → invalid route
+                print(f"[y/z imjn] Request {base_pick} incomplete: pickup->transfer (no t1 found)")
+                continue
 
-            # mark pickup → t1
+            # mark arcs pickup -> t1 on v_pick
             for a in range(idx_pick, idx_t1):
-                i = self.base(route1[a])
-                j = self.base(route1[a+1])
-                if (r, i, j) in y:
-                    y[r, i, j].Start = 1
+                i = route1[a]
+                j = route1[a + 1]
+                if (request, i, j) in y:
+                    y[request, i, j].Start = 1
+                    print(f"y[{request}, {i}, {j}] initialised to 1")
+                else:
+                    print(f"{(request, i, j)} not in y")
 
-            # === STEP 4 — find t2: last transfer before dropoff ===
+            # === STEP 4 — find v_drop, t2 and idx_drop ===
             v_drop, idx_drop, t2, idx_t2 = None, None, None, None
 
             for v2 in range(self.n_veh):
-                route2 = self.vehicle_route[v2]
-                # first find dropoff on this vehicle
+                route2 = self.vehicle_routes[v2]
+
+                # find first dropoff position on this vehicle
+                idx_drop_candidate = None
                 for a2, node in enumerate(route2):
                     if self.base(node) == base_drop:
-                        v_drop = v2
-                        idx_drop = a2
+                        idx_drop_candidate = a2
                         break
+                if idx_drop_candidate is None:
+                    continue
+
+                # scan backwards to get last transfer before that dropoff, different from t1
+                for a2 in range(idx_drop_candidate - 1, -1, -1):
+                    node_b = route2[a2]
+                    if node_b in C and node_b != t1:
+                        v_drop = v2
+                        idx_drop = idx_drop_candidate
+                        t2 = node_b
+                        idx_t2 = a2
+                        break
+
                 if v_drop is not None:
-                    # now search BACKWARDS from idx_drop for last transfer
-                    for a2 in range(idx_drop - 1, -1, -1):
-                        node_b = self.base(route2[a2])
-                        if node_b in C and node_b != t1:
-                            t2 = node_b
-                            idx_t2 = a2
-                            break
                     break
 
-            if t2 is None:
-                print(f"Request {self.base(r_pick)} has an incomplete route")
-                print("The issue stems from transfer to transfer")
-                continue  # no second transfer → cannot serve request
+            if t2 is None or v_drop is None:
+                print(f"[y/z imjn] Request {base_pick} incomplete: transfer->dropoff (no t2 found)")
+                continue
 
-            # === STEP 5 — assign z[r,t1,t2] ===
-            # if (r, t1, t2) in z:
-            #     z[r, t1, t2].Start = 1
-
-            # === STEP 6 — from t2 → dropoff on v_drop ===
-            route2 = self.vehicle_route[v_drop]
+            # === STEP 5 — mark arcs t2 -> dropoff on v_drop ===
+            route2 = self.vehicle_routes[v_drop]
             for a2 in range(idx_t2, idx_drop):
-                i = self.base(route2[a2])
-                j = self.base(route2[a2+1])
-                if (r, i, j) in y:
-                    y[r, i, j].Start = 1
+                i = route2[a2]
+                j = route2[a2 + 1]
+                if (request, i, j) in y:
+                    y[request, i, j].Start = 1
+                    print(f"y[{request}, {i}, {j}] initialised to 1")
+                else:
+                    print(f"{(request, i, j)} not in y")
 
 
-            
+
 class destroy_operators:
     def __init__(self, m, vars_, sets, params, **options):
         self.m = m

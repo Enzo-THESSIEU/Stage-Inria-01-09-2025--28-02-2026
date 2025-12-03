@@ -12,6 +12,7 @@ from Parametres import DARPDataBuilder
 from Cluster_Heuristic import DARPHeuristic 
 from Debugger_code import DARPDebuggingFunctions, DARPRouteDebugging
 from model_verification import write_model_verification_report
+from LNS import initial_solution, translate_LNS_to_Gurobi
 
 import logging
 from logging.handlers import RotatingFileHandler
@@ -100,8 +101,10 @@ class DARPExperimentRunner:
     # ---------------------------
 
     def build_model(self, params, model_name):
+
         self.logger.log(f"Building model {model_name}")
 
+        # === 1. Build model data (sets + parameters) ===
         data_builder = DARPDataBuilder(
             duplicate_transfers=params["duplicate_transfers"],
             arc_elimination=params["arc_elimination"],
@@ -112,6 +115,7 @@ class DARPExperimentRunner:
 
         sets, p = data_builder.build()
 
+        # === 2. Build Gurobi model with all variables & constraints ===
         model_builder = DARPModelBuilder(
             model_name=model_name,
             TIME_LIMIT=self.time_limit,
@@ -122,10 +126,122 @@ class DARPExperimentRunner:
 
         m, vars_ = model_builder.build()
 
+        # Store
         self.m, self.vars_, self.sets, self.params = m, vars_, sets, p
 
+        self.m.update()
+
+
+        # ==========================================================================
+        # === 3. INITIAL SOLUTION → Construct heuristic solution ===================
+        # ==========================================================================
+
+        if params['LNS']:
+
+            # Build heuristic solution
+            init = initial_solution(
+                m=self.m,
+                vars_=self.vars_,
+                sets=self.sets,
+                params=self.params,
+                **params
+            )
+
+            # Run heuristic of your choice
+            # init.closest_request_greedy_heuristic()
+            # init.earliest_request_greedy_heuristic()
+            init.Execute_Heuristic()
+            vehicle_routes = init.vehicle_route
+
+            # === LOG heuristic routes ===
+            for k in range(len(vehicle_routes)):
+                print(f"Initial route for vehicle {k}: {vehicle_routes[k]}")
+                self.logger.log(f"Initial route for vehicle {k}: {vehicle_routes[k]}")
+
+
+            # ==========================================================================
+            # === 4. Translate heuristic into MIP start ================================
+            # ==========================================================================
+
+            
+
+            translator = translate_LNS_to_Gurobi(
+                vehicle_routes=vehicle_routes,
+                m=self.m,
+                vars_=self.vars_,
+                sets=self.sets,
+                params=self.params,
+                variable_substitution=params["variable_substitution"],
+                duplicate_transfers=params["duplicate_transfers"],
+                use_imjn=params["use_imjn"]
+            )
+
+            # Set initial x/v values
+            translator.intialise_all_gurobi_binary_variables_to_one()
+            translator.translate_to_gurobi_variables_x()
+
+            # Set y/z depending on duplicate vs IMJN
+            if params["duplicate_transfers"]:
+                translator.translate_to_gurobi_variables_y_z_duplicate_transfers()
+                print("runnning translator.translate_to_gurobi_variables_y_z_duplicate_transfers()")
+            else:
+                translator.translate_to_gurobi_variables_y_z_imjn()
+                print("running translator.translate_to_gurobi_variables_y_z_imjn()")
+
+            # Push warm-start info into Gurobi
+            self.m.update()
+
+            print("\nMIP start objective (if any):", self.m.NumStart)
+
+            print("\n=== CHECKING ASSIGNED START VALUES ===")
+
+            count = 0
+
+            for var in self.m.getVars():
+                # Skip z-variables
+                if var.VarName.startswith("z"):
+                    continue
+
+                # Check if Start value was assigned
+                if var.Start is not None and 0.5 < abs(var.Start) < 1e9:
+                    print(f"{var.VarName} = {var.Start}")
+                    count += 1
+
+            print(f"Total warm-start variables assigned: {count}")
+
+
+
+            self.logger.log("Initial solution applied as MIP start")
+
+        return self.m, self.vars_
+
     # ---------------------------
-    # 2 — OPTIMISE
+    # 2 — Test initial solution
+    # ---------------------------
+    def test_mip_start_feasibility(self, m):
+        # Make a copy so you don't touch the real model
+        mtest = m.copy()
+
+        # Fix all integer/binary vars to their Start value
+        for v in mtest.getVars():
+            if v.VType != gb.GRB.CONTINUOUS and v.Start not in (None, 0):
+                v.LB = v.Start
+                v.UB = v.Start
+
+        mtest.Params.OutputFlag = 1
+        mtest.Params.TimeLimit = 60  # small time limit is enough
+        print("\n=== Testing warm-start feasibility ===")
+        mtest.optimize()
+
+        print("Test status:", mtest.Status)
+        if mtest.Status == gb.GRB.INFEASIBLE:
+            print("Warm start is infeasible → computing IIS...")
+            mtest.computeIIS()
+            mtest.write("warmstart_iis.ilp")
+            print("IIS written to warmstart_iis.ilp")
+
+    # ---------------------------
+    # 3 — OPTIMISE
     # ---------------------------
 
     def optimise_model(self, params, model_name):
@@ -143,6 +259,10 @@ class DARPExperimentRunner:
 
         start_cpu = t.process_time()
         start_wall = t.perf_counter()
+
+        self.m.Params.StartNumber = 0
+        self.m.Params.StartNodeLimit = 1
+
 
         if params["subtour_elimination"]:
             heuristic = DARPHeuristic(
@@ -190,10 +310,17 @@ class DARPExperimentRunner:
 
                         model.cbCut(expr >= 1)
 
+            # print("MIP start objective:", self.m.MIPStart)
+
             m.optimize(subtour_callback)
 
         else:
+            # print("MIP start objective:", self.m.MIPStart)
+
             m.optimize()
+
+
+
 
         self.cpu_time = t.process_time() - start_cpu
         self.elapsed_time = t.perf_counter() - start_wall
@@ -205,7 +332,7 @@ class DARPExperimentRunner:
             raise SystemExit("Model infeasible; IIS written.")
 
     # ---------------------------
-    # 3 — DEBUG / EXTRACT ROUTES
+    # 4 — DEBUG / EXTRACT ROUTES
     # ---------------------------
 
     def debug_model(self, params, model_name):
@@ -216,7 +343,7 @@ class DARPExperimentRunner:
 
         # constrained, problems = debugger.compute_constraint_balance()
         # vflow, vprob = debugger.check_flow_conservation()
-        debugger.print_z_variable_summary(model_name)
+        # debugger.print_z_variable_summary(model_name)
 
         routedbg = DARPRouteDebugging(
             m=self.m, vars_=self.vars_, sets=self.sets, params=self.params, options=params
@@ -224,8 +351,10 @@ class DARPExperimentRunner:
 
         if params['ev_constraints']:
             v1, v2 = routedbg.extract_vehicle_route_final_ev()
+            ev_constraint = routedbg.ev_constraints_issue()
         else:
             v1, v2 = routedbg.extract_vehicle_route_final()
+            ev_constraint = None
         
         r1, r2, r3, r4 = routedbg.extract_request_route_final()
         z1 = routedbg.extract_PT_route_final()
@@ -243,7 +372,8 @@ class DARPExperimentRunner:
             "Req2": str(r2),
             "Req3": str(r3),
             "Req4": str(r4),
-            "PT": str(z1)
+            "PT": str(z1),
+            "ev_constraint": ev_constraint,
         }
 
         # self.debugging_data = {
@@ -254,7 +384,7 @@ class DARPExperimentRunner:
         # }
 
     # ---------------------------
-    # 4 — PRINT & STORE
+    # 5 — PRINT & STORE
     # ---------------------------
 
     def print_data(self, params, model_name):
@@ -262,100 +392,158 @@ class DARPExperimentRunner:
                 
             def print_routes_ev():
 
-                print("\n========================")
-                print("=== VEHICLE ROUTES ====")
-                print("========================\n")
+                def print_vehicle_routes():
 
-                # -----------------------------------------------------------
-                # 1. VEHICLE ROUTES
-                # -----------------------------------------------------------
-                for key, item in self.result.items():
-                    if not key.startswith("Veh"):
-                        continue
+                    print("\n========================")
+                    print("=== VEHICLE ROUTES ====")
+                    print("========================\n")
 
-                    print(f"{key}:")
-
-                    try:
-                        route = ast.literal_eval(item)
-                    except Exception as e:
-                        print(f"  [Parse error for {key}]: {e}")
-                        print()
-                        continue
-
-                    for step in route:
-                        # Expecting:
-                        # [ [i,j], i, node_type, req, T, soc, charge_time, pct ]
-                        arc, node, node_type, req, T, soc, charge_time, pct = step
-
-                        label = f"{node}"
-
-                        if node_type == "pickup":
-                            node_type_fmt = f"pickup({req})"
-                        elif node_type == "dropoff":
-                            node_type_fmt = f"dropoff({req})"
-                        else:
-                            node_type_fmt = node_type
-
-                        base_line = f"  {label:<8} {node_type_fmt:<20} T={T:<7.1f} SOC={soc:5.1f}"
-
-                        if node_type == "charging station":
-                            base_line += f"   ChargeTime={charge_time:.1f}   +{pct:.1f}%"
-
-                        print(base_line)
-
-                    print()
-
-                # -----------------------------------------------------------
-                # 2. REQUEST ROUTES
-                # -----------------------------------------------------------
-                print("\n========================")
-                print("=== REQUEST ROUTES ====")
-                print("========================\n")
-
-                for key, item in self.result.items():
-                    if not key.startswith("Req"):
-                        continue
-
-                    print(f"{key}:")
-
-                    try:
-                        req_list = ast.literal_eval(item)
-                    except Exception as e:
-                        print(f"  [Parse error for {key}]: {e}")
-                        continue
-
-                    # Format: [[r, [(i,m),(j,n)]], ...]
-                    for segment in req_list:
-                        if len(segment) != 2:
+                    # -----------------------------------------------------------
+                    # 1. VEHICLE ROUTES
+                    # -----------------------------------------------------------
+                    for key, item in self.result.items():
+                        if not key.startswith("Veh"):
                             continue
 
-                        r_id, arcs = segment
-                        print(f" {arcs[0]} -> {arcs[1]}")
-                    print()
+                        print(f"{key}:")
 
-                # -----------------------------------------------------------
-                # 3. PT ROUTES (Public Transport Arcs)
-                # -----------------------------------------------------------
-                print("\n========================")
-                print("=== PT ROUTES (z=1) ===")
-                print("========================\n")
-
-                if "PT" in self.result:
-                    try:
-                        pt_list = ast.literal_eval(self.result["PT"])
-                    except Exception as e:
-                        print(f"  [Parse error for PT]: {e}")
-                        return
-
-                    for elem in pt_list:
-                        # elem = [((i,m),(j,n)), 'Departure X', 'T(i)=..', 'T(j)=..', 'z=1']
                         try:
-                            arc, dep, Ti, Tj, z = elem
-                            print(f"  {arc[0]} -> {arc[1]}   {dep},  {Ti},  {Tj},  {z}")
-                        except:
-                            print(f"  {elem}")
+                            route = ast.literal_eval(item)
+                        except Exception as e:
+                            print(f"  [Parse error for {key}]: {e}")
+                            print()
+                            continue
 
-                print("\n=== END OF ROUTES ===\n")
+                        for step in route:
+                            # Expecting:
+                            # [ [i,j], i, node_type, req, T, soc, charge_time, pct ]
+                            arc, node, node_type, req, T, soc, charge_time, pct = step
+
+                            label = f"{node}"
+
+                            if node_type == "pickup":
+                                node_type_fmt = f"pickup({req})"
+                            elif node_type == "dropoff":
+                                node_type_fmt = f"dropoff({req})"
+                            else:
+                                node_type_fmt = node_type
+
+                            base_line = f"  {label:<8} {node_type_fmt:<20} T={T:<7.1f} SOC={soc:5.1f}"
+
+                            if node_type == "charging station":
+                                base_line += f"   ChargeTime={charge_time:.1f}   +{pct:.1f}%"
+
+                            print(base_line)
+
+                        print()
+
+                def print_request_routes():
+                    # -----------------------------------------------------------
+                    # 2. REQUEST ROUTES
+                    # -----------------------------------------------------------
+                    print("\n========================")
+                    print("=== REQUEST ROUTES ====")
+                    print("========================\n")
+
+                    for key, item in self.result.items():
+                        if not key.startswith("Req"):
+                            continue
+
+                        print(f"{key}:")
+
+                        try:
+                            req_list = ast.literal_eval(item)
+                        except Exception as e:
+                            print(f"  [Parse error for {key}]: {e}")
+                            continue
+
+                        # Format: [[r, [(i,m),(j,n)]], ...]
+                        for segment in req_list:
+                            if len(segment) != 2:
+                                continue
+
+                            r_id, arcs = segment
+                            print(f" {arcs[0]} -> {arcs[1]}")
+                        print()
+
+                def print_PT_routes():
+                    # -----------------------------------------------------------
+                    # 3. PT ROUTES (Public Transport Arcs)
+                    # -----------------------------------------------------------
+                    print("\n========================")
+                    print("=== PT ROUTES (z=1) ===")
+                    print("========================\n")
+
+                    if "PT" in self.result:
+                        try:
+                            pt_list = ast.literal_eval(self.result["PT"])
+                        except Exception as e:
+                            print(f"  [Parse error for PT]: {e}")
+                            return
+
+                        for elem in pt_list:
+                            # elem = [((i,m),(j,n)), 'Departure X', 'T(i)=..', 'T(j)=..', 'z=1']
+                            try:
+                                arc, dep, Ti, Tj, z = elem
+                                print(f"  {arc[0]} -> {arc[1]}   {dep},  {Ti},  {Tj},  {z}")
+                            except:
+                                print(f"  {elem}")
+
+                    print("\n=== END OF ROUTES ===\n")
+
+                def print_ev_constraints():
+
+                    print("\n========================")
+                    print("=== EV CONSTRAINTS ====")
+                    print("========================\n")
+
+                    if "ev_constraint" in self.result:
+
+                        # If already a Python list, use it directly
+                        if isinstance(self.result["ev_constraint"], list):
+                            ev_list = self.result["ev_constraint"]
+                        else:
+                            # Fallback for string-stored lists
+                            try:
+                                ev_list = ast.literal_eval(self.result["ev_constraint"])
+                            except Exception as e:
+                                print(f"  [Parse error for ev_constraint]: {e}")
+                                print("\n=== END OF EV CONSTRAINTS ===\n")
+                                return
+
+
+                        if not ev_list:
+                            print("  (No active EV constraints)")
+                            print("\n=== END OF EV CONSTRAINTS ===\n")
+                            return
+
+                        for elem in ev_list:
+
+                            # Expected format:
+                            # [
+                            #   "ARC USED: (i,j)" or "ARC USED: vehicle k, (i,j)",
+                            #   "  Battery at i: ...",
+                            #   "  Battery at j: ...",
+                            #   "  Theoretical consumption: ...",
+                            #   "  Actual ΔB: ...",
+                            #   "  Constraint: ..."
+                            # ]
+
+                            if not isinstance(elem, list):
+                                print(f"  {elem} \n")
+                                continue
+
+                            for line in elem:
+                                print(line)
+                            print()
+
+                    print("\n=== END OF EV CONSTRAINTS ===\n")
+                
+                print_vehicle_routes()
+                print_request_routes()
+                print_PT_routes()
+                # print_ev_constraints()
+
 
             print_routes_ev()
 
@@ -482,6 +670,9 @@ class DARPExperimentRunner:
 
     def run_single_model(self, params, model_name="SingleModel"):
         self.build_model(params, model_name)
+
+        # self.test_mip_start_feasibility(self.m)
+
         self.optimise_model(params, model_name)
         self.debug_model(params, model_name)
         self.print_data(params, model_name)
@@ -554,15 +745,17 @@ class DARPExperimentRunner:
 if __name__ == "__main__":
     TIME_LIMIT = 2 * 60 * 60
     bool_params_singular = {
-        "duplicate_transfers": False,
+        "duplicate_transfers": True,
         "arc_elimination": True,
         "variable_substitution": True,
         "subtour_elimination": False,
         "transfer_node_strengthening": False,
         "ev_constraints": False,
-        "timetabled_departures": True,
-        "use_imjn": True,
-        "MoPS": False
+        "timetabled_departures": False,
+        "use_imjn": False,
+        "MoPS": False,
+        
+        "LNS": True
     }
 
     runner = DARPExperimentRunner(time_limit=TIME_LIMIT)

@@ -703,8 +703,8 @@ class DARPDataBuilder:
         # Electric Vehicle Constants
         C_bat_kWh = 14.85 # Battery Capacity in kWh 
         C_bat = C_bat_kWh*(60*60) # Battery Capacity in kWs
-        alpha = 2.97 # Charging Power in kW (Recharge complète en 5 heures donc puissance de recharge de 14,85kWh/5 heures = 2,97 kW)
-        beta = 0.055 * 60 # Average Power in kW (0,055 kWh par minute = 3,3 kW)
+        alpha = 2.97 * 10 # Charging Power in kW (Recharge complète en 5 heures donc puissance de recharge de 14,85kWh/5 heures = 2,97 kW)
+        beta = 0.055 * 60 * 10  # Average Power in kW (0,055 kWh par minute = 3,3 kW)
         gamma = 0.1 # Minimum battery capacity set at 10%
         gamma_end = 0.7 # Minimum battery Capacity at end Depot
 
@@ -799,4 +799,5 @@ if __name__ == "__main__":
     # DAR_depot_arcs = {(i, j) for (i, j) in DAR_arcs if (i, j) not in request_arcs}
     # for (i, j) in transfer_arcs:
     #     print(i, j)
+    print(params['pair_pi_di'][(4,1)])
 

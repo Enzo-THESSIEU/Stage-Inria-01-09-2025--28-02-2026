@@ -50,7 +50,7 @@ class DARPConstraintBuilder:
         DAR_arcs = {(i,j) for (i,j) in A if (i,j) not in transfer_arcs}
         request_arcs = {(i,j) for (i,j) in DAR_arcs if not (i == zeroDepot or j == endDepot)}
 
-        x = self.m.addVars(K, DAR_arcs, vtype=gb.GRB.BINARY, name="x")   # vehicle arcs
+        x = self.m.addVars(K, A, vtype=gb.GRB.BINARY, name="x")   # vehicle arcs
 
         # Passenger flow
         y = self.m.addVars(R, request_arcs, vtype=gb.GRB.CONTINUOUS, lb=0, ub=1.0, name="y")
@@ -65,7 +65,7 @@ class DARPConstraintBuilder:
 
         # Variable Substitution
         if self.variable_substitution:
-            v = self.m.addVars(DAR_arcs, vtype=gb.GRB.BINARY, name="v")      # DAR arcs
+            v = self.m.addVars(A, vtype=gb.GRB.BINARY, name="v")      # DAR arcs
 
         # Transfer / fixed-route arcs
         z = {}
@@ -176,11 +176,11 @@ class DARPConstraintBuilder:
 
         c_max = max(cij.values())
 
-        if self.variable_substitution: f1 = gb.quicksum(cij[(self.base(i),self.base(j))]/c_max * v[i,j] for (i,j) in v.keys())
-        else: f1 = gb.quicksum(cij[self.base(i), self.base(j)]/c_max * x[k,i,j] for (k,i,j) in x.keys())
+        # if self.variable_substitution: f1 = gb.quicksum(cij[(self.base(i),self.base(j))]/c_max * v[i,j] for (i,j) in v.keys())
+        # else: f1 = gb.quicksum(cij[self.base(i), self.base(j)]/c_max * x[k,i,j] for (k,i,j) in x.keys())
 
-        # if self.variable_substitution: f1 = gb.quicksum(cij[(self.base(i),self.base(j))] * v[i,j] for (i,j) in v.keys())
-        # else: f1 = gb.quicksum(cij[self.base(i), self.base(j)] * x[k,i,j] for (k,i,j) in x.keys())
+        if self.variable_substitution: f1 = gb.quicksum(cij[(self.base(i),self.base(j))] * v[i,j] for (i,j) in v.keys())
+        else: f1 = gb.quicksum(cij[self.base(i), self.base(j)] * x[k,i,j] for (k,i,j) in x.keys())
 
         f2 = gb.quicksum(T_node[d] - T_node[p] - di[self.base(p)] - tij[self.base(p),self.base(d)] for p,d in pair_pi_di.items())
         f3 = gb.quicksum((T_node[d] - T_node[p] - di[self.base(p)]) / tij[self.base(p),self.base(d)] for p,d in pair_pi_di.items())
@@ -228,7 +228,7 @@ class DARPConstraintBuilder:
                     name=f"∑_j v[j,i] == 1  ∀i∈(P∪D)  [incoming_to_{i}]"
                 )
 
-            # (2) Each transfer node used at most once
+            # (2) Each transfer and charging node used at most once
             for i in C:
                 self.m.addConstr(
                     gb.quicksum(v[i, j] for j in N if (i, j) in v.keys()) <= 1,
@@ -319,16 +319,16 @@ class DARPConstraintBuilder:
 
             #################################################################################################################################################################
 
-            # A transfer node can be visited at most once
-            # for i in C:
-            #     self.m.addConstr(
-            #         gb.quicksum(x[k, i, j] for k in K for j in N if (i, j) in A) <= 1,
-            #         name=f"∑_k∑_j x[k,{i},j] <= 1  ∀i∈(C)"
-            #     )
-            #     self.m.addConstr(
-            #         gb.quicksum(x[k, j, i] for k in K for j in N if (j, i) in A) <= 1,
-            #         name=f"∑_k∑_j x[k,j,{i}] <= 1  ∀i∈(C)"
-            #     )
+            # A transfer or charging node can be visited at most once
+            for i in C:
+                self.m.addConstr(
+                    gb.quicksum(x[k, i, j] for k in K for j in N if (i, j) in A) <= 1,
+                    name=f"∑_k∑_j x[k,{i},j] <= 1  ∀i∈(C)"
+                )
+                self.m.addConstr(
+                    gb.quicksum(x[k, j, i] for k in K for j in N if (j, i) in A) <= 1,
+                    name=f"∑_k∑_j x[k,j,{i}] <= 1  ∀i∈(C)"
+                )
 
             # (2') Each vehicle leaves depot once
             for k in K:
@@ -791,16 +791,18 @@ class DARPConstraintBuilder:
         tij = self.params["tij"]
         beta, alpha, C_bat, gamma, gamma_end, ei, li = self.params["beta"], self.params["alpha"], self.params["C_bat"], self.params["gamma"], self.params['gamma_end'], self.params['ei'], self.params['li']
 
+        slack = 0
+
         if self.variable_substitution:
             # (1) Battery SOC variation along arcs (with variable substitution)
             for (i, j) in v.keys():
                 if i not in F:
                     self.m.addConstr(
-                        B_node[j] - B_node[i] + beta * tij[(self.base(i), self.base(j))] - C_bat * (1 - v[i, j]) <= 0,
+                        B_node[j] - B_node[i] + beta * tij[(self.base(i), self.base(j))] - C_bat * (1 - v[i, j]) <= slack,
                         name=f"B[{j}] - B[{i}] + β * t[{self.base(i)},{self.base(j)}] - Cbat * (1 - v[{i},{j}]) ≤ 0"
                     )
                     self.m.addConstr(
-                        B_node[j] - B_node[i] + beta * tij[(self.base(i), self.base(j))] + C_bat * (1 - v[i, j]) >= 0,
+                        B_node[j] - B_node[i] + beta * tij[(self.base(i), self.base(j))] + C_bat * (1 - v[i, j]) >= - slack,
                         name=f"B[{j}] - B[{i}] + β * t[{self.base(i)},{self.base(j)}] + Cbat * (1 - v[{i},{j}]) ≥ 0"
                     )
 
@@ -821,24 +823,25 @@ class DARPConstraintBuilder:
             for (i, j) in A:
                 if i not in F:
                     self.m.addConstr(
-                        B_node[j] - B_node[i] + beta * tij[(self.base(i), self.base(j))] - C_bat * (1 - gb.quicksum(x[k, i, j] for k in K if (k, i, j) in x.keys())) <= 0,
+                        B_node[j] - B_node[i] + beta * tij[(self.base(i), self.base(j))] - C_bat * (1 - gb.quicksum(x[k, i, j] for k in K if (k, i, j) in x.keys())) <= slack,
                         name=f"B[{j}] - B[{i}] + β * t[{self.base(i)},{self.base(j)}] - Cbat * (1 - ∑_k x[k,{i},{j}]) ≤ 0"
                     )
                     self.m.addConstr(
-                        B_node[j] - B_node[i] + beta * tij[(self.base(i), self.base(j))] + C_bat * (1 - gb.quicksum(x[k, i, j] for k in K if (k, i, j) in x.keys())) >= 0,
+                        B_node[j] - B_node[i] + beta * tij[(self.base(i), self.base(j))] + C_bat * (1 - gb.quicksum(x[k, i, j] for k in K if (k, i, j) in x.keys())) >= - slack,
                         name=f"B[{j}] - B[{i}] + β * t[{self.base(i)},{self.base(j)}] - Cbat * (1 - ∑_k x[k,{i},{j}]) ≤ 0"
                     )
 
             for s in F:
                 for j in N:
-                    self.m.addConstr(
-                        B_node[j] <= B_node[s] - beta * tij[(self.base(s), self.base(j))] + alpha * E_node[s] + C_bat * (1 - gb.quicksum(x[k, s, j] for k in K if (k, s, j) in x.keys())),
-                        name = "Battery consumption/recharge at charging facilities"
-                    )
-                    self.m.addConstr(
-                        B_node[j] >= B_node[s] - beta * tij[(self.base(s), self.base(j))] + alpha * E_node[s] - C_bat * (1 - gb.quicksum(x[k, s, j] for k in K if (k, s, j) in x.keys())),
-                        name = "Battery consumption/recharge at charging facilities"
-                    )
+                    if (s,j) in A:
+                        self.m.addConstr(
+                            B_node[j] <= B_node[s] - beta * tij[(self.base(s), self.base(j))] + alpha * E_node[s] + C_bat * (1 - gb.quicksum(x[k, s, j] for k in K if (k, s, j) in x.keys())),
+                            name = "Battery consumption/recharge at charging facilities"
+                        )
+                        self.m.addConstr(
+                            B_node[j] >= B_node[s] - beta * tij[(self.base(s), self.base(j))] + alpha * E_node[s] - C_bat * (1 - gb.quicksum(x[k, s, j] for k in K if (k, s, j) in x.keys())),
+                            name = "Battery consumption/recharge at charging facilities"
+                        )
 
 
         # (2) Battery capacity constraint at charging stations
@@ -890,12 +893,12 @@ class DARPConstraintBuilder:
                         if (i,j) in A:
                             self.m.addConstr(
                                 E_node[s] <= T_node[s] - tij[self.base(i), self.base(s)] - T_node[i] + 
-                                (li[self.base(s)] - ei[self.base[i]] + tij[self.base[i], self.base[s]]) * (1 - gb.quicksum(x[k,i,s] for k in K)),
+                                (li[self.base(s)] - ei[self.base(i)] + tij[self.base(i), self.base(s)]) * (1 - gb.quicksum(x[k,i,s] for k in K)),
                                 name = "Charging time constraints (1)"
                             )
                             self.m.addConstr(
                                 E_node[s] >= T_node[s] - tij[self.base(i), self.base(s)] - T_node[i] - 
-                                (li[self.base(s)] - ei[self.base[i]] - tij[self.base[i], self.base[s]]) * (1 - gb.quicksum(x[k,i,s] for k in K)),
+                                (li[self.base(s)] - ei[self.base(i)] + tij[self.base(i), self.base(s)]) * (1 - gb.quicksum(x[k,i,s] for k in K)),
                                 name = "Charging time constraints (1)"
                             )
 
