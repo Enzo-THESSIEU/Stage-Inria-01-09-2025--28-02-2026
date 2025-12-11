@@ -656,6 +656,7 @@ class DARPRouteDebugging:
                                 if z[d, r, i, j].X > 1e-6:
                                     used_PT_arcs.append([
                                         (i, j),
+                                        f"Request {r}",
                                         f"Departure {d}",
                                         f"T({i})={T_node[i].X:.2f}",
                                         f"T({j})={T_node[j].X:.2f}",

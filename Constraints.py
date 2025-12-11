@@ -48,7 +48,7 @@ class DARPConstraintBuilder:
             transfer_arcs = {(i,j) for i in C for j in C if self.base(i) != self.base(j)}
 
         DAR_arcs = {(i,j) for (i,j) in A if (i,j) not in transfer_arcs}
-        request_arcs = {(i,j) for (i,j) in DAR_arcs if not (i == zeroDepot or j == endDepot)}
+        request_arcs = {(i,j) for (i,j) in A if not (i == zeroDepot or j == endDepot)}
 
         x = self.m.addVars(K, A, vtype=gb.GRB.BINARY, name="x")   # vehicle arcs
 
@@ -398,7 +398,6 @@ class DARPConstraintBuilder:
                         for d in Departures[(self.base(i), self.base(j))]
                         if (d,r,i,j) in z
                     )
-
 
                     z_sum_dropoff = gb.quicksum(
                         z[d, r, j, i]

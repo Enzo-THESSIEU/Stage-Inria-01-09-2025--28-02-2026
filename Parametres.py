@@ -1,14 +1,16 @@
 ##### Imports #####
 import numpy as np
+from extract_data import data_extractor
 
 class DARPDataBuilder:
     def __init__(self, duplicate_transfers=True, arc_elimination=True,
-                 ev_constraints=False, use_imjn=False, MoPS = False, max_visits_transfer=3):
+                 ev_constraints=False, use_imjn=False, MoPS = False, datafile_instance=False, max_visits_transfer=5):
         self.duplicate_transfers = duplicate_transfers
         self.arc_elimination = arc_elimination
         self.ev_constraints = ev_constraints
         self.use_imjn = use_imjn
         self.MoPS = MoPS
+        self.datafile_instance = datafile_instance
         self.max_visits_transfer = max_visits_transfer
 
     def base(self, x):
@@ -125,7 +127,6 @@ class DARPDataBuilder:
 
 
         return t_ext
-
     
     def build_nodes(self, base_nodes, n_requests, n_vehicles, n_trans_nodes):
 
@@ -271,8 +272,9 @@ class DARPDataBuilder:
             did = self.base(d)
             e = ei[pid] + di[pid] + tij[pid, did]
             l = li[pid] + Lbar[pid]
-            ei[did] = e
-            li[did] = l
+            if not self.datafile_instance:
+                ei[did] = e
+                li[did] = l
         pair_pi_di_M = {}
         if self.MoPS:
             pair_pi_di_M = {p: d for p, d in zip(P_M, D_M)}
@@ -550,7 +552,7 @@ class DARPDataBuilder:
 
     def pack_data(self):
 
-        # Parametres
+        # Parametres        
 
         ### Base travel time matrix
         if self. MoPS:
@@ -674,6 +676,18 @@ class DARPDataBuilder:
         nodes = self.build_nodes(nodes, n_requests, n_vehicles, n_trans_nodes)
         # print("nodes after nuild_nodes :", nodes)
 
+        if self.datafile_instance:
+            file_path_prev = "C:\\Users\\enzot\\Documents\\Césure\\1ère césure inria Lille\\Codes\\Stage-Inria-01-09-2025--28-02-2026\\code and instances\\"
+            extractor = data_extractor(file_path = file_path_prev + "datafile0.txt", mrt_factor = 2)
+            nodes = extractor.extract_node_info()
+            t = extractor.extract_travel_matrix(pt_speed = 1)
+            mrt = extractor.compute_maximum_ride_time(t)
+            nodes = extractor.tighten_time_windows(nodes, t)
+            n_vehicles = extractor.n_vehicles
+            n_requests = extractor.n_requests
+            n_transfers = extractor.n_transfers
+            t_transfer = t
+
         # Build sets Id
         # N, P, D, C, F, zeroDepot, endDepot, N_type = build_node_id_sets(nodes)
         if self.use_imjn:
@@ -708,6 +722,15 @@ class DARPDataBuilder:
         gamma = 0.1 # Minimum battery capacity set at 10%
         gamma_end = 0.7 # Minimum battery Capacity at end Depot
 
+        def pair_pi_di_base_build(pair_pi_di):
+            base_pair_pi_di = {}
+            for key, val in pair_pi_di.items():
+                base_pair_pi_di[self.base(key)] = self.base(val)
+            return base_pair_pi_di
+
+        base_pair_pi_di = pair_pi_di_base_build(pair_pi_di)
+        base_pair_pi_di_M = pair_pi_di_base_build(pair_pi_di_M)
+
         # --- Dataset with all variants included ---
 
         sets = dict(
@@ -717,7 +740,8 @@ class DARPDataBuilder:
         params = dict(
             # === Parameters ===
             Q=Q, T=T, qr=qr, di=di, ei=ei, li=li,
-            ek=ek, lk=lk, fi_r=fi_r, Lbar=Lbar, pair_pi_di=pair_pi_di, pair_pi_di_M=pair_pi_di_M, M=M, n=n)
+            ek=ek, lk=lk, fi_r=fi_r, Lbar=Lbar, pair_pi_di=pair_pi_di, pair_pi_di_M=pair_pi_di_M, M=M, n=n, 
+            base_pair_pi_di = base_pair_pi_di, base_pair_pi_di_M = base_pair_pi_di_M)
 
         if self.MoPS:
             params['tij'], params['cij'] = self.build_tij(
@@ -799,5 +823,5 @@ if __name__ == "__main__":
     # DAR_depot_arcs = {(i, j) for (i, j) in DAR_arcs if (i, j) not in request_arcs}
     # for (i, j) in transfer_arcs:
     #     print(i, j)
-    print(params['pair_pi_di'][(4,1)])
+    print(params['base_pair_pi_di'])
 

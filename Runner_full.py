@@ -150,8 +150,9 @@ class DARPExperimentRunner:
             # Run heuristic of your choice
             # init.closest_request_greedy_heuristic()
             # init.earliest_request_greedy_heuristic()
-            init.Execute_Heuristic()
-            vehicle_routes = init.vehicle_route
+            # vehicle_routes = init.vehicle_route
+
+            vehicle_routes = init.Execute_Heuristic()
 
             # === LOG heuristic routes ===
             for k in range(len(vehicle_routes)):
@@ -171,20 +172,19 @@ class DARPExperimentRunner:
                 vars_=self.vars_,
                 sets=self.sets,
                 params=self.params,
-                variable_substitution=params["variable_substitution"],
-                duplicate_transfers=params["duplicate_transfers"],
-                use_imjn=params["use_imjn"]
+                **params
             )
 
             # Set initial x/v values
-            translator.intialise_all_gurobi_binary_variables_to_one()
-            translator.translate_to_gurobi_variables_x()
+            # translator.intialise_all_gurobi_binary_variables_to_one()
 
             # Set y/z depending on duplicate vs IMJN
             if params["duplicate_transfers"]:
+                translator.translate_to_gurobi_variables_x_base_nodes()
                 translator.translate_to_gurobi_variables_y_z_duplicate_transfers()
-                print("runnning translator.translate_to_gurobi_variables_y_z_duplicate_transfers()")
+                print("running translator.translate_to_gurobi_variables_y_z_duplicate_transfers()")
             else:
+                translator.translate_to_gurobi_variables_x_imjn_nodes()
                 translator.translate_to_gurobi_variables_y_z_imjn()
                 print("running translator.translate_to_gurobi_variables_y_z_imjn()")
 
@@ -484,8 +484,8 @@ class DARPExperimentRunner:
                         for elem in pt_list:
                             # elem = [((i,m),(j,n)), 'Departure X', 'T(i)=..', 'T(j)=..', 'z=1']
                             try:
-                                arc, dep, Ti, Tj, z = elem
-                                print(f"  {arc[0]} -> {arc[1]}   {dep},  {Ti},  {Tj},  {z}")
+                                arc, req, dep, Ti, Tj, z = elem
+                                print(f"  {arc[0]} -> {arc[1]},  {req},  {dep},  {Ti},  {Tj},  {z}")
                             except:
                                 print(f"  {elem}")
 
@@ -745,16 +745,16 @@ class DARPExperimentRunner:
 if __name__ == "__main__":
     TIME_LIMIT = 2 * 60 * 60
     bool_params_singular = {
-        "duplicate_transfers": True,
+        "duplicate_transfers": False,
         "arc_elimination": True,
         "variable_substitution": True,
         "subtour_elimination": False,
         "transfer_node_strengthening": False,
         "ev_constraints": False,
-        "timetabled_departures": False,
-        "use_imjn": False,
+        "timetabled_departures":True,
+        "use_imjn": True,
         "MoPS": False,
-        
+
         "LNS": True
     }
 
