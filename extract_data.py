@@ -48,16 +48,16 @@ class data_extractor:
 
                 elif node_id < depot_max:
                     node_type = "depot"
-                    request = None
+                    request = ""
 
                 elif node_id < transfer_max:
                     node_type = "transfer"
-                    request = None
+                    request = ""
 
                 else:
                     # Should not happen
                     node_type = "unknown"
-                    request = None
+                    request = ""
 
                 capacity = 1
 
@@ -136,15 +136,32 @@ class data_extractor:
     def tighten_time_windows(self, nodes, tij):
         mrt = self.compute_maximum_ride_time(tij)
         for node in nodes:
-            if node[1] == "dropoff":
-                node_id = node[0]
+            if node[1] == "pickup":
+                pickup_node_id = node[0]
+                dropoff_node_id = pickup_node_id + self.n_requests
                 request = node[2]
-                lw = node[3]
-                uw = node[4]
-                lw_pickup = lw - mrt[request]
-                uw_pickup = uw - tij[request, node_id]
-                nodes[node_id - self.n_requests][3] = lw_pickup
-                nodes[node_id - self.n_requests][4] = uw_pickup
+
+                lw_p = node[3]
+                uw_p = node[4]
+
+                lw_d = nodes[dropoff_node_id][3]
+                uw_d = nodes[dropoff_node_id][4]
+
+                tw_pickup = uw_p - lw_p
+                tw_dropoff = uw_d - lw_d
+
+                if tw_dropoff < tw_pickup:
+                    lw_pickup = round(lw_d - mrt[request], 2)
+                    uw_pickup = round(uw_d - tij[pickup_node_id, dropoff_node_id], 2)
+                    nodes[pickup_node_id][3] = float(lw_pickup)
+                    nodes[pickup_node_id][4] = float(uw_pickup)
+                
+                else:
+                    lw_dropoff = round(lw_p + tij[pickup_node_id, dropoff_node_id], 2)
+                    uw_dropoff = round(uw_p + mrt[request], 2)
+                    nodes[dropoff_node_id][3] = float(lw_dropoff)
+                    nodes[dropoff_node_id][4] = float(uw_dropoff)
+
         return nodes
 
 

@@ -23,7 +23,7 @@ using namespace std;
 
 
 // Input data:
-string data_darp = "datafile1.txt";
+string data_darp = "datafile_4_request.txt";
 
 // Problem-related parameters:
 bool transfers = 1;
@@ -58,6 +58,8 @@ int improve_random_removal = 0, improve_worst_removal = 0, improve_related_remov
 // Main function to run the algorithm:
 int main(int argc, char *argv[]) {
 
+	std::cout << "START\n";
+
 	srand(time(NULL));
 	chrono::high_resolution_clock::time_point start_time = chrono::high_resolution_clock::now();
 
@@ -86,6 +88,7 @@ int main(int argc, char *argv[]) {
 	// Create and initialize problem:
 	struct problem p;
 	build_problem(p, data_darp);
+	std::cout << "Problem Built\n";
 	
 	// Create and initialize solutions:
 	struct solution s_curr;
@@ -94,13 +97,19 @@ int main(int argc, char *argv[]) {
 	initialize_solution(p, s_curr);
 	initialize_solution(p, s_best);
 	initialize_solution(p, s_over);
+	std::cout << "Solution intialised \n";
+	std::cout << "Problem with " << p.n_requests << " requests, " << p.n_vehicles << " vehicles, " << p.n_terminals << " terminals \n";
+	std::cout << "Nodes: " << p.n_nodes << ", References: " << p.n_references << "\n";
 
 	// Construct an initial solution:
 	random_order_insertion(p, s_curr);
 	while (check_completeness(p, s_curr) == false) {
 		random_removal(p, s_curr, max_removal_pct, 0);
 		random_order_insertion(p, s_curr);
+		std::cout << s_curr.total_distance << "\n";
 	}
+
+	std::cout << "Initial solution is " << s_over.total_distance << "\n"; 
 
 	// Update the best and overall best solution with the initial solution:
 	update_solution(p, s_best, s_curr, true);
@@ -237,6 +246,10 @@ void read_data_darp(problem &p, std::string data_darp) {
 
 	ifstream infile;
 	infile.open(data_darp);
+	if (!infile.is_open()) {
+		std::cerr << "File not opened\n";
+	}
+
 
 	infile >> p.n_vehicles >> p.n_requests >> p.n_terminals;
 

@@ -210,7 +210,6 @@ class initial_solution:
     #             self.loc[next_vehicle] = next_node
 
 
-
     def earliest_request_greedy_heuristic(self):
         tij = self.params['tij']
         pair_pi_di = self.params['pair_pi_di']
@@ -1289,7 +1288,6 @@ class translate_LNS_to_Gurobi:
                     print(f"y[{request}, {i}, {j}] initialised to 1")
                 else:
                     print(f"{(request, i, j)} not in y")
-
 
 
 class destroy_operators:

@@ -178,15 +178,16 @@ class DARPRouteDebugging:
         options = options_1['options']
 
         # Unpack all boolean flags, with defaults
-        self.duplicate_transfers = options.get("duplicate_transfers", True)
-        self.arc_elimination = options.get("arc_elimination", True)
-        self.variable_substitution = options.get("variable_substitution", True)
-        self.subtour_elimination = options.get("subtour_elimination", True)
-        self.transfer_node_strengthening = options.get("transfer_node_strengthening", True)
-        self.ev_constraints = options.get("ev_constraints", False)
-        self.timetabled_departures = options.get("timetabled_departures", False)
-        self.use_imjn = options.get("use_imjn", False)
-        self.MoPS = options.get("MoPS", False)
+        self.duplicate_transfers = options.get("duplicate_transfers")
+        self.arc_elimination = options.get("arc_elimination")
+        self.variable_substitution = options.get("variable_substitution")
+        self.subtour_elimination = options.get("subtour_elimination")
+        self.transfer_node_strengthening = options.get("transfer_node_strengthening")
+        self.ev_constraints = options.get("ev_constraints")
+        self.timetabled_departures = options.get("timetabled_departures")
+        self.use_imjn = options.get("use_imjn")
+        self.MoPS = options.get("MoPS")
+        self.datafile_instance = options.get("datafile_instance")
 
 
         

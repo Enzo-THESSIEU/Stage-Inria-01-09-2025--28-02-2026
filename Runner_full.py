@@ -110,7 +110,8 @@ class DARPExperimentRunner:
             arc_elimination=params["arc_elimination"],
             ev_constraints=params["ev_constraints"],
             use_imjn=params["use_imjn"],
-            MoPS=params["MoPS"]
+            MoPS=params["MoPS"],
+            datafile_instance=params["datafile_instance"]
         )
 
         sets, p = data_builder.build()
@@ -755,7 +756,9 @@ if __name__ == "__main__":
         "use_imjn": True,
         "MoPS": False,
 
-        "LNS": True
+        "LNS": False,
+
+        "datafile_instance": True,
     }
 
     runner = DARPExperimentRunner(time_limit=TIME_LIMIT)

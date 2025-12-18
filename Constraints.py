@@ -3,7 +3,7 @@ import gurobipy as gb
 
 class DARPConstraintBuilder:
     def __init__(self, m, vars_, sets, params, duplicate_transfers=True, arc_elimination=True, variable_substitution=True, subtour_elimination=True, transfer_node_strengthening=True,
-                 ev_constraints=False, timetabled_departures=False, use_imjn=False, MoPS = False):
+                 ev_constraints=False, timetabled_departures=False, use_imjn=False, MoPS = False, datafile_instance=False):
         self.duplicate_transfers = duplicate_transfers
         self.arc_elimination = arc_elimination
         self.variable_substitution = variable_substitution
@@ -13,6 +13,7 @@ class DARPConstraintBuilder:
         self.timetabled_departures = timetabled_departures
         self.use_imjn = use_imjn
         self.MoPS = MoPS
+        self.datafile_instance = datafile_instance
         self.m = m
         self.vars_ = vars_
         self.sets = sets
@@ -48,7 +49,10 @@ class DARPConstraintBuilder:
             transfer_arcs = {(i,j) for i in C for j in C if self.base(i) != self.base(j)}
 
         DAR_arcs = {(i,j) for (i,j) in A if (i,j) not in transfer_arcs}
-        request_arcs = {(i,j) for (i,j) in A if not (i == zeroDepot or j == endDepot)}
+        if self.datafile_instance:
+            request_arcs = {(i,j) for (i,j) in A if not (i not in zeroDepot or j not in endDepot)}
+        else:
+            request_arcs = {(i,j) for (i,j) in A if not (i == zeroDepot or j == endDepot)}
 
         x = self.m.addVars(K, A, vtype=gb.GRB.BINARY, name="x")   # vehicle arcs
 
@@ -212,7 +216,7 @@ class DARPConstraintBuilder:
     def add_vehicle_logic_constraints(self):
         nodes, N, P, D, C, F, R, K, P_M, D_M, zeroDepot, endDepot, A = self.sets["nodes"], self.sets["N"], self.sets["P"], self.sets["D"], self.sets["C"], self.sets["F"], self.sets["R"], self.sets["K"], self.sets['P_M'], self.sets['D_M'], self.sets["zeroDepot"], self.sets["endDepot"], self.sets["A"]
         v, x, y = self.vars_["v"], self.vars_["x"], self.vars_["y"]
-        zeroDepot_node, endDepot_node = zeroDepot, endDepot
+        
 
         # === CASE 1: VARIABLE SUBSTITUTION ACTIVE ===
         if self.variable_substitution:
@@ -239,61 +243,80 @@ class DARPConstraintBuilder:
                     name=f"∑_j v[j,i] ≤ 1  ∀i∈C  [transfer_in_{i}]"
                 )
 
-            # (3) Depot departure: each vehicle leaves at most once
-            for k in K:
-                self.m.addConstr(
-                    gb.quicksum(x[k, zeroDepot_node, j] for j in N if (k, zeroDepot_node, j) in x.keys()) <= 1,
-                    name=f"∑_j x[k,{zeroDepot_node},j] ≤ 1  ∀k∈K"
-                )
+            if self.datafile_instance:
 
-            # (4) Link depot departure to vehicle arcs
-            for j in N:
-                if (zeroDepot_node, j) in v.keys():
-                    self.m.addConstr(
-                        gb.quicksum(x[k, zeroDepot_node, j] for k in K) == v[zeroDepot_node, j],
-                        name=f"∑_k x[k,{zeroDepot_node},j] == v[{zeroDepot_node},{j}]"
-                    )
-
-            # (5) Flow conservation at all non-depot nodes
-            for i in N:
-                if i not in [zeroDepot_node, endDepot_node]:
-                    self.m.addConstr(
-                        gb.quicksum(v[j, i] for j in N if (j, i) in v.keys())
-                        - gb.quicksum(v[i, j] for j in N if (i, j) in v.keys())
-                        == 0,
-                        name=f"∑_j v[j,i] - ∑_j v[i,j] = 0  ∀i∈(P∪D∪C)"
-                    )
-
-            for k in K:
-                for i in N:
-                    if i not in [zeroDepot_node, endDepot_node]:
+                # (3) Depot departure: each vehicle leaves at most once
+                for k in K:
+                    for zeroDepot_node in zeroDepot:
                         self.m.addConstr(
-                            gb.quicksum(x[k, j, i] for j in N if (k, j, i) in x.keys())
-                            - gb.quicksum(x[k, i, j] for j in N if (k, i, j) in x.keys())
-                            == 0,
-                            name=f"∑_j x[{k},j,i] - ∑_j x[{k},i,j] = 0  ∀i∈(P∪D∪C),∀k"
+                            gb.quicksum(x[k, zeroDepot_node, j] for j in N if (k, zeroDepot_node, j) in x.keys()) <= 1,
+                            name=f"∑_j x[k,{zeroDepot_node},j] ≤ 1  ∀k∈K"
                         )
 
-            # (6) All vehicles must end at depot
-            self.m.addConstr(
-                gb.quicksum(v[i, endDepot_node] for i in N if (i, endDepot_node) in v.keys()) == len(K),
-                name=f"∑_i v[i,{endDepot_node}] == |K|  [vehicles_end_depot]"
-            )
+                # (4) Link depot departure to vehicle arcs
+                for j in N:
+                    for zeroDepot_node in zeroDepot:
+                        if (zeroDepot_node, j) in v.keys():
+                            self.m.addConstr(
+                                gb.quicksum(x[k, zeroDepot_node, j] for k in K) == v[zeroDepot_node, j],
+                                name=f"∑_k x[k,{zeroDepot_node},j] == v[{zeroDepot_node},{j}]"
+                            )
 
-            # (7) Each vehicle ends at depot once
-            for k in K:
-                self.m.addConstr(
-                    gb.quicksum(x[k, i, endDepot_node] for i in N if (k, i, endDepot_node) in x.keys()) == 1,
-                    name=f"∑_i x[k,i,{endDepot_node}] == 1  ∀k∈K"
-                )
+                # (5) Flow conservation at all non-depot nodes
+                for i in N:
+                    if i not in zeroDepot + endDepot:
+                        self.m.addConstr(
+                            gb.quicksum(v[j, i] for j in N if (j, i) in v.keys())
+                            - gb.quicksum(v[i, j] for j in N if (i, j) in v.keys())
+                            == 0,
+                            name=f"∑_j v[j,i] - ∑_j v[i,j] = 0  ∀i∈(P∪D∪C)"
+                        )
 
-            # (8) Vehicle-depot link consistency
-            for i in N:
-                if (i, endDepot_node) in v.keys():
+                for k in K:
+                    for i in N:
+                        if i not in zeroDepot + endDepot:
+                            self.m.addConstr(
+                                gb.quicksum(x[k, j, i] for j in N if (k, j, i) in x.keys())
+                                - gb.quicksum(x[k, i, j] for j in N if (k, i, j) in x.keys())
+                                == 0,
+                                name=f"∑_j x[{k},j,i] - ∑_j x[{k},i,j] = 0  ∀i∈(P∪D∪C),∀k"
+                            )
+
+                # (6) All vehicles must end at depot
+                for endDepot_node in endDepot:
                     self.m.addConstr(
-                        gb.quicksum(x[k, i, endDepot_node] for k in K) == v[i, endDepot_node],
-                        name=f"∑_k x[k,i,{endDepot_node}] == v[i,{endDepot_node}]"
+                        gb.quicksum(v[i, endDepot_node] for i in N if (i, endDepot_node) in v.keys()) == len(K),
+                        name=f"∑_i v[i,{endDepot_node}] == |K|  [vehicles_end_depot]"
                     )
+
+                # (7) Each vehicle ends at depot once
+                for k in K:
+                    for endDepot_node in endDepot:
+                        self.m.addConstr(
+                            gb.quicksum(x[k, i, endDepot_node] for i in N if (k, i, endDepot_node) in x.keys()) == 1,
+                            name=f"∑_i x[k,i,{endDepot_node}] == 1  ∀k∈K"
+                        )
+
+                # (8) Vehicle-depot link consistency
+                for i in N:
+                    for endDepot_node in endDepot:
+                        if (i, endDepot_node) in v.keys():
+                            self.m.addConstr(
+                                gb.quicksum(x[k, i, endDepot_node] for k in K) == v[i, endDepot_node],
+                                name=f"∑_k x[k,i,{endDepot_node}] == v[i,{endDepot_node}]"
+                            )
+                
+                # (10) For This instance make sure each vehicle starts and ends at same Depot node
+                for endDepot_node in endDepot:
+                    for zeroDepot_node in zeroDepot:
+                        self.m.addConstr(
+                            gb.quicksum(x[k, i, endDepot_node] for k in K for i in N if (k, i, endDepot_node) in x) == gb.quicksum(x[k, zeroDepot_node, i] for k in K for i in N if (k, zeroDepot_node, i) in x)
+
+                        )
+                
+            else:
+                t = 1
+
 
             # (9) Passenger-vehicle link: y[r,i,j] ≤ v[i,j]
             for r in R:
@@ -303,6 +326,8 @@ class DARPConstraintBuilder:
                             y[r, i, j] <= v[i, j],
                             name=f"y[{r},{i},{j}] ≤ v[{i},{j}]"
                         )
+
+            
 
         # === CASE 2: NO VARIABLE SUBSTITUTION ===
         else:

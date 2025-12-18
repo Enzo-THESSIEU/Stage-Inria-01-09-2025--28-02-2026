@@ -36,6 +36,7 @@ class DARPModelBuilder:
         timetabled_departures = self.options.get("timetabled_departures")
         use_imjn = self.options.get("use_imjn")
         MoPS = self.options.get("MoPS")
+        datafile_instance = self.options.get("datafile_instance")
         clusters = []
 
         # === Step 2: Build Model ===

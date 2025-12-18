@@ -199,11 +199,16 @@ class DARPDataBuilder:
   
     def build_node_id_sets(self, nodes):
         N = nodes[:, 0].astype(int).tolist()
+        # print("N", N)
         P = nodes[nodes[:, 1] == "pickup", 0].astype(int).tolist()
         D = nodes[nodes[:, 1] == "dropoff", 0].astype(int).tolist()
         C = nodes[nodes[:, 1] == "transfer", 0].astype(int).tolist()
-        zeroDepot = int(nodes[nodes[:, 1] == "depot0", 0][0])
-        endDepot = int(nodes[nodes[:, 1] == "depot1", 0][0])
+        if self.datafile_instance:
+            zeroDepot = nodes[nodes[:, 1] == "depot", 0].astype(int).tolist()
+            endDepot = nodes[nodes[:, 1] == "depot", 0].astype(int).tolist()
+        else:
+            zeroDepot = int(nodes[nodes[:, 1] == "depot0", 0][0])
+            endDepot = int(nodes[nodes[:, 1] == "depot1", 0][0])
         F = []
         P_M = []
         D_M = []
@@ -217,8 +222,13 @@ class DARPDataBuilder:
     def build_node_imjn_sets(self, nodes):
         N_minor, P_minor, D_minor, C_minor, F_minor, zeroDepot_node, endDepot_node, P_M_minor, D_M_minor = self.build_node_id_sets(nodes)
         # Wrap depots as (id,1)
-        zeroDepot_node = (zeroDepot_node, 1)
-        endDepot_node = (endDepot_node, 1)
+        if self.datafile_instance:
+            zeroDepot_node = [(zeroDepot, 1) for zeroDepot in zeroDepot_node]
+            endDepot_node = [(endDepot, 2) for endDepot in endDepot_node]
+
+        else:
+            zeroDepot_node = (zeroDepot_node, 1)
+            endDepot_node = (endDepot_node, 1)
 
         # Expand pickups/dropoffs as (i,1)
         P = [(i, 1) for i in P_minor]
@@ -237,7 +247,13 @@ class DARPDataBuilder:
             D_M = [(i, 1) for i in D_M_minor]
 
         # All nodes in tuple format
-        N = [zeroDepot_node, endDepot_node] + P + D + C + F + P_M + D_M
+        if self.datafile_instance:
+            N = zeroDepot_node + endDepot_node + P + D + C + F + P_M + D_M
+        else:
+            N = [zeroDepot_node, endDepot_node] + P + D + C + F + P_M + D_M
+
+        # print("P", P)
+        # print("D", D)
 
         return N, P, D, C, F, zeroDepot_node, endDepot_node, P_M, D_M
 
@@ -246,6 +262,7 @@ class DARPDataBuilder:
             r_values = nodes[np.isin(nodes[:, 1], ["pickup", "dropoff", "transfer", "MoPS pickup", "MoPS dropoff"]), 2]
             r_values = r_values[r_values != ""]
             R = sorted(set(r_values.astype(int)))
+            # print("RR", R)
             return R
         else:
             r_values = nodes[np.isin(nodes[:, 1], ["pickup", "dropoff", "transfer", "MoPS pickup", "MoPS dropoff"]), 2]
@@ -291,7 +308,14 @@ class DARPDataBuilder:
     def build_fi_r(self, nodes, N, R, P, D, P_M, D_M):
         fi_r = {(int(r), i): 0 for r in R for i in N}
         for p, d in zip(P, D):
-            r = int(nodes[nodes[:, 0] == self.base(p), 2][0])
+            # print("self.base(p)", self.base(p))
+            # print("nodes[:, 0]", int(nodes[:, 0]))
+            # print("nodes[nodes[:, 0]]", nodes[nodes[:, 0]])
+            # print("nodes[nodes[:, 0] == self.base(p), 2", nodes[nodes[:, 0] == self.base(p), 2])
+            if self.datafile_instance:
+                r = int(nodes[nodes[:, 0].astype(int) == self.base(p), 2][0])
+            else:
+                r = int(nodes[nodes[:, 0] == self.base(p), 2][0])
             fi_r[r, p] = 1
             fi_r[r, d] = -1
         if self.MoPS:
@@ -397,27 +421,56 @@ class DARPDataBuilder:
             base = self.base  
 
             # --- Depot restrictions ---
-            for i in N:
-                bi = base(i)
-                if (bi, base(zeroDepot)) in tij:
-                    del tij[(bi, base(zeroDepot))]
-                if (base(endDepot), bi) in tij:
-                    del tij[(base(endDepot), bi)]
+            if self.datafile_instance:
+                for i in N:
+                    bi = base(i)
+                    for Depot_node in zeroDepot:   ### for this type of instance the zero depot node is the same as the end depot node
+                        if (bi, base(Depot_node)) in tij:
+                            del tij[(bi, base(Depot_node))]
+                        if (base(Depot_node), bi) in tij:
+                            del tij[(base(Depot_node), bi)]
 
-            for i in D:
-                if (base(zeroDepot), base(i)) in tij:
-                    del tij[(base(zeroDepot), base(i))]
-            for i in P:
-                if (base(i), base(endDepot)) in tij:
-                    del tij[(base(i), base(endDepot))]
-            
-            if self.MoPS:
-                for i in D_M:
+                for i in D:
+                    for Depot_node in zeroDepot:
+                        if (base(Depot_node), base(i)) in tij:
+                            del tij[(base(Depot_node), base(i))]
+                for i in P:
+                    for Depot_node in zeroDepot:
+                        if (base(i), base(Depot_node)) in tij:
+                            del tij[(base(i), base(Depot_node))]
+                
+                if self.MoPS:
+                    for i in D_M:
+                        for Depot_node in zeroDepot:
+                            if (base(Depot_node), base(i)) in tij:
+                                del tij[(base(Depot_node), base(i))]
+                    for i in P_M:
+                        for Depot_node in zeroDepot:
+                            if (base(i), base(Depot_node)) in tij:
+                                del tij[(base(i), base(Depot_node))]
+
+            else:
+                for i in N:
+                    bi = base(i)
+                    if (bi, base(zeroDepot)) in tij:
+                        del tij[(bi, base(zeroDepot))]
+                    if (base(endDepot), bi) in tij:
+                        del tij[(base(endDepot), bi)]
+
+                for i in D:
                     if (base(zeroDepot), base(i)) in tij:
                         del tij[(base(zeroDepot), base(i))]
-                for i in P_M:
+                for i in P:
                     if (base(i), base(endDepot)) in tij:
                         del tij[(base(i), base(endDepot))]
+                
+                if self.MoPS:
+                    for i in D_M:
+                        if (base(zeroDepot), base(i)) in tij:
+                            del tij[(base(zeroDepot), base(i))]
+                    for i in P_M:
+                        if (base(i), base(endDepot)) in tij:
+                            del tij[(base(i), base(endDepot))]
 
             # # --- Remove self-loops ---
             # for i in N:
@@ -682,7 +735,7 @@ class DARPDataBuilder:
             nodes = extractor.extract_node_info()
             t = extractor.extract_travel_matrix(pt_speed = 1)
             mrt = extractor.compute_maximum_ride_time(t)
-            nodes = extractor.tighten_time_windows(nodes, t)
+            nodes = np.array(extractor.tighten_time_windows(nodes, t))
             n_vehicles = extractor.n_vehicles
             n_requests = extractor.n_requests
             n_transfers = extractor.n_transfers
@@ -699,6 +752,8 @@ class DARPDataBuilder:
             R, Cr = self.build_requests(nodes)
             N, P, D, C, F, zeroDepot, endDepot, P_M, D_M = self.build_node_id_sets(nodes)
 
+        # print("R fi_r", R)
+        # print("N fi_r", N)
         fi_r = self.build_fi_r(nodes, N, R, P, D, P_M, D_M)
         # print("fi_r is: ",fi_r)
 
@@ -785,20 +840,25 @@ if __name__ == "__main__":
         arc_elimination=True,
         ev_constraints=True,
         use_imjn=True,
-        MoPS=False
+        MoPS=False,
+        datafile_instance=True
     )
     sets, params = builder.build()
     print("✅ Build complete.")
-    print("Node definition:", sets['nodes'])
-    print("Number of nodes:", len(sets["N"]))
+    print("Node definition:")
+    # for node in sets['nodes']:
+    #     print("====================\n")
+    #     print(f"Node {node} \n")
+
+    # print("Number of nodes:", len(sets["N"]))
     # print("Number of arcs:", len(sets["A"]))
-    print("Travel time dict:", params["tij"])
+    # print("Travel time dict:", params["tij"])
     # print("f_ir:", params['fi_r'])
     # print("tij: ", params['tij'])
     # print("ei:", params['ei'])
     # print("li:", params['li'])
     # print("C", sets['C'])
-    # print("A", sets['A'])
+    # print("R", sets['R'])
     # def base(x):
     #     return x[0] if isinstance(x, tuple) else x
     # for (i,j) in sets['A']:
