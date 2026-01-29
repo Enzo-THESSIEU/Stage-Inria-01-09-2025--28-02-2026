@@ -1,6 +1,7 @@
 ##### Imports #####
 import numpy as np
 from extract_data import data_extractor
+from sql_to_instance import build_random_instance
 
 class DARPDataBuilder:
     def __init__(self, duplicate_transfers=True, arc_elimination=True,
@@ -155,6 +156,10 @@ class DARPDataBuilder:
         nodes : np.ndarray
             Full node array including base, transfer, and optional charging nodes
         """
+
+        if self.datafile_instance:
+            return base_nodes
+
         transfers, charging_stations = [], []
 
         # --- TRANSFER NODES ---
@@ -204,8 +209,8 @@ class DARPDataBuilder:
         D = nodes[nodes[:, 1] == "dropoff", 0].astype(int).tolist()
         C = nodes[nodes[:, 1] == "transfer", 0].astype(int).tolist()
         if self.datafile_instance:
-            zeroDepot = nodes[nodes[:, 1] == "depot", 0].astype(int).tolist()
-            endDepot = nodes[nodes[:, 1] == "depot", 0].astype(int).tolist()
+            zeroDepot = nodes[nodes[:, 1] == "depot0", 0].astype(int).tolist()
+            endDepot = nodes[nodes[:, 1] == "depot1", 0].astype(int).tolist()
         else:
             zeroDepot = int(nodes[nodes[:, 1] == "depot0", 0][0])
             endDepot = int(nodes[nodes[:, 1] == "depot1", 0][0])
@@ -325,7 +330,7 @@ class DARPDataBuilder:
                 fi_r[r, d] = -1
         return fi_r
 
-    def build_departures(self, t, C_minor, interval=10, planning_horizon=24*60):    ##### Modify again ######
+    def build_departures(self, t, C_minor, interval=10, planning_horizon=720):    ##### Modify again ######
         """
         Build Departures dictionary with forward and backward arcs (including skip arcs).
 
@@ -372,15 +377,17 @@ class DARPDataBuilder:
                     for a, d in Departures[(right_terminal, transfer_nodes[i])].items()
                 }
 
-        if self.MoPS:
-            Departures[(13,13)] = {a: interval * a for a in range(int(n_intervals))}
-            Departures[(14,14)] = {a: interval * a for a in range(int(n_intervals))}
-            Departures[(12,12)] = {a: interval * a for a in range(int(n_intervals))}
+        # if self.MoPS:
+        for i in C_minor:
+            Departures[(i, i)] = {a: interval * a for a in range(int(n_intervals))}
+            # Departures[(13,13)] = {a: interval * a for a in range(int(n_intervals))}
+            # Departures[(14,14)] = {a: interval * a for a in range(int(n_intervals))}
+            # Departures[(12,12)] = {a: interval * a for a in range(int(n_intervals))}
 
-        else:
-            Departures[(10,10)] = {a: interval * a for a in range(int(n_intervals))}
-            Departures[(11,11)] = {a: interval * a for a in range(int(n_intervals))}
-            Departures[(12,12)] = {a: interval * a for a in range(int(n_intervals))}
+        # else:
+        #     Departures[(10,10)] = {a: interval * a for a in range(int(n_intervals))}
+        #     Departures[(11,11)] = {a: interval * a for a in range(int(n_intervals))}
+        #     Departures[(12,12)] = {a: interval * a for a in range(int(n_intervals))}
 
         return Departures
 
@@ -413,6 +420,8 @@ class DARPDataBuilder:
 
         # === Step 2. Build tij, cij dicts ===
         tij = {(self.base(i), self.base(j)): float(t_transfer[self.base(i), self.base(j)]) for i in N for j in N}
+        # print(tij.keys())
+
 
         # === Step 3. Arc elimination (optional) ===
         if self.arc_elimination and all(v is not None for v in [di, ei, li, Lbar, P, D, N, zeroDepot, endDepot, n]):
@@ -420,57 +429,60 @@ class DARPDataBuilder:
             # Helper for short access
             base = self.base  
 
-            # --- Depot restrictions ---
-            if self.datafile_instance:
-                for i in N:
-                    bi = base(i)
-                    for Depot_node in zeroDepot:   ### for this type of instance the zero depot node is the same as the end depot node
-                        if (bi, base(Depot_node)) in tij:
-                            del tij[(bi, base(Depot_node))]
-                        if (base(Depot_node), bi) in tij:
-                            del tij[(base(Depot_node), bi)]
+            # # --- Depot restrictions ---
+            # if self.datafile_instance:
+            #     for i in N:
+            #         bi = base(i)
+            #         for Depot_node in zeroDepot:   ### for this type of instance the zero depot node is the same as the end depot node
+            #             if (bi, base(Depot_node)) in tij:
+            #                 del tij[(bi, base(Depot_node))]
+            #             if (base(Depot_node), bi) in tij:
+            #                 del tij[(base(Depot_node), bi)]
 
-                for i in D:
-                    for Depot_node in zeroDepot:
-                        if (base(Depot_node), base(i)) in tij:
-                            del tij[(base(Depot_node), base(i))]
-                for i in P:
-                    for Depot_node in zeroDepot:
-                        if (base(i), base(Depot_node)) in tij:
-                            del tij[(base(i), base(Depot_node))]
+            #     for i in D:
+            #         for Depot_node in zeroDepot:
+            #             if (base(Depot_node), base(i)) in tij:
+            #                 del tij[(base(Depot_node), base(i))]
+            #     for i in P:
+            #         for Depot_node in zeroDepot:
+            #             if (base(i), base(Depot_node)) in tij:
+            #                 del tij[(base(i), base(Depot_node))]
                 
-                if self.MoPS:
-                    for i in D_M:
-                        for Depot_node in zeroDepot:
-                            if (base(Depot_node), base(i)) in tij:
-                                del tij[(base(Depot_node), base(i))]
-                    for i in P_M:
-                        for Depot_node in zeroDepot:
-                            if (base(i), base(Depot_node)) in tij:
-                                del tij[(base(i), base(Depot_node))]
+            #     if self.MoPS:
+            #         for i in D_M:
+            #             for Depot_node in zeroDepot:
+            #                 if (base(Depot_node), base(i)) in tij:
+            #                     del tij[(base(Depot_node), base(i))]
+            #         for i in P_M:
+            #             for Depot_node in zeroDepot:
+            #                 if (base(i), base(Depot_node)) in tij:
+            #                     del tij[(base(i), base(Depot_node))]
 
-            else:
-                for i in N:
-                    bi = base(i)
-                    if (bi, base(zeroDepot)) in tij:
-                        del tij[(bi, base(zeroDepot))]
-                    if (base(endDepot), bi) in tij:
-                        del tij[(base(endDepot), bi)]
+            # else:
+            for i in N:
+                bi = base(i)
+                # print("bi:", bi, type(bi))
+                # print("zeroDepot:", zeroDepot, type(zeroDepot))
+                # print("base(zeroDepot):", base(zeroDepot), type(base(zeroDepot)))
+                if (bi, base(zeroDepot)) in tij:
+                    del tij[(bi, base(zeroDepot))]
+                if (base(endDepot), bi) in tij:
+                    del tij[(base(endDepot), bi)]
 
-                for i in D:
+            for i in D:
+                if (base(zeroDepot), base(i)) in tij:
+                    del tij[(base(zeroDepot), base(i))]
+            for i in P:
+                if (base(i), base(endDepot)) in tij:
+                    del tij[(base(i), base(endDepot))]
+            
+            if self.MoPS:
+                for i in D_M:
                     if (base(zeroDepot), base(i)) in tij:
                         del tij[(base(zeroDepot), base(i))]
-                for i in P:
+                for i in P_M:
                     if (base(i), base(endDepot)) in tij:
                         del tij[(base(i), base(endDepot))]
-                
-                if self.MoPS:
-                    for i in D_M:
-                        if (base(zeroDepot), base(i)) in tij:
-                            del tij[(base(zeroDepot), base(i))]
-                    for i in P_M:
-                        if (base(i), base(endDepot)) in tij:
-                            del tij[(base(i), base(endDepot))]
 
             # # --- Remove self-loops ---
             # for i in N:
@@ -488,23 +500,23 @@ class DARPDataBuilder:
                         del tij[(base(d), base(p))]
 
             # --- Time-window infeasibility ---
-            for i in N:
-                for j in N:
-                    bi, bj = base(i), base(j)
-                    if (bi, bj) in tij and bi in ei and bi in di and bj in li:
-                        if ei[bi] + di[bi] + tij[(bi, bj)] >= li[bj]:
-                            del tij[(bi, bj)]
+            # for i in N:
+            #     for j in N:
+            #         bi, bj = base(i), base(j)
+            #         if (bi, bj) in tij and bi in ei and bi in di and bj in li:
+            #             if ei[bi] + di[bi] + tij[(bi, bj)] >= li[bj]:
+            #                 del tij[(bi, bj)]
 
             # --- Ride time infeasibility ---
-            for i in P:
-                for j in N:
-                    bi, bj = base(i), base(j)
-                    if (bi, bj) in tij and (bj, base(pair_pi_di[i])) in tij:
-                        if tij[(bi, bj)] + di[bj] + tij[(bj, base(pair_pi_di[i]))] >= Lbar[bi]:
-                            if (bi, bj) in tij:
-                                del tij[(bi, bj)]
-                            if (bj, base(pair_pi_di[i])) in tij:
-                                del tij[(bj, base(pair_pi_di[i]))]
+            # for i in P:
+            #     for j in N:
+            #         bi, bj = base(i), base(j)
+            #         if (bi, bj) in tij and (bj, base(pair_pi_di[i])) in tij:
+            #             if tij[(bi, bj)] + di[bj] + tij[(bj, base(pair_pi_di[i]))] >= Lbar[bi]:
+            #                 if (bi, bj) in tij:
+            #                     del tij[(bi, bj)]
+            #                 if (bj, base(pair_pi_di[i])) in tij:
+            #                     del tij[(bj, base(pair_pi_di[i]))]
 
             if self.MoPS:
                 for i in P_M:
@@ -631,23 +643,6 @@ class DARPDataBuilder:
                 [163, 159, 301, 270,  39, 329,  34,  57, 316, 304, 137, 163, 283, 142,   0],
             ], dtype=float)
 
-            # t = np.array([
-            #     [  0,  23, 173, 131, 195, 170, 129, 160, 153, 157,  80,   0, 120,  21, 163],
-            #     [ 23,   0, 166, 123, 173, 179, 125, 138, 168, 159, 103,  23, 135,  26, 159],
-            #     [173, 166,   0,  57, 289,  41, 268, 254,  79,  59, 253, 173,  57, 191, 301],
-            #     [131, 123,  57,   0, 258,  72, 236, 222,  60,  63, 211, 131,  29, 148, 270],
-            #     [195, 173, 289, 258,   0, 318,  73,  35, 306, 293, 115, 195, 273, 174,  39],
-            #     [170, 179,  41,  72, 318,   0, 296, 282,  53,  55, 250, 170,  51, 191, 329],
-            #     [129, 125, 268, 236,  73, 296,   0,  48, 282, 270, 128, 129, 248, 108,  34],
-            #     [160, 138, 254, 222,  35, 282,  48,   0, 271, 257,  80, 160, 237, 139,  57],
-            #     [153, 168,  79,  60, 306,  53, 282, 271,   0,  64, 233, 153,  35, 174, 316],
-            #     [157, 159,  59,  63, 293,  55, 270, 257,  64,   0, 237, 157,  43, 176, 304],
-            #     [ 80, 103, 253, 211, 115, 250, 128,  80, 233, 237,   0,  80, 200, 101, 137],
-            #     [  0,  23, 173, 131, 195, 170, 129, 160, 153, 157,  80,   0, 120,  21, 163],
-            #     [120, 135,  57,  29, 273,  51, 248, 237,  35,  43, 200, 120,   0, 1, 1],
-            #     [ 21,  26, 191, 148, 174, 191, 108, 139, 174, 176, 101,  21, 1,   0, 1],
-            #     [163, 159, 301, 270,  39, 329,  34,  57, 316, 304, 137, 163, 1, 1,   0],
-            # ], dtype=float)
 
             nodes = np.array([
                 [0, "depot0", "", 0, 86400, 0, 0],
@@ -681,22 +676,6 @@ class DARPDataBuilder:
                 [163, 159, 301, 270,  39, 329,  34,  57, 316, 163, 283, 142,   0]
             ], dtype=float)
 
-            ### === Modified t to favorise the use of PT (foir verification of model) === ###
-            # t = np.array([
-            #     [  0,  23, 173, 131, 195, 170, 129, 160, 153,   0, 120,  21, 163],
-            #     [ 23,   0, 166, 123, 173, 179, 125, 138, 168,  23, 135,  26, 159],
-            #     [173, 166,   0,  57, 289,  41, 268, 254,  79, 173,  57, 191, 301],
-            #     [131, 123,  57,   0, 258,  72, 236, 222,  60, 131,  29, 148, 270],
-            #     [195, 173, 289, 258,   0, 318,  73,  35, 306, 195, 273, 174,  39],
-            #     [170, 179,  41,  72, 318,   0, 296, 282,  53, 170,  51, 191, 329],
-            #     [129, 125, 268, 236,  73, 296,   0,  48, 282, 129, 248, 108,  34],
-            #     [160, 138, 254, 222,  35, 282,  48,   0, 271, 160, 237, 139,  57],
-            #     [153, 168,  79,  60, 306,  53, 282, 271,   0, 153,  35, 174, 316],
-            #     [  0,  23, 173, 131, 195, 170, 129, 160, 153,   0, 120,  21, 163],
-            #     [120, 135,  57,  29, 273,  51, 248, 237,  35, 120,   0, 1, 1],
-            #     [ 21,  26, 191, 148, 174, 191, 108, 139, 174,  21, 1,   0, 1],
-            #     [163, 159, 301, 270,  39, 329,  34,  57, 316, 163, 1, 1,   0]
-            # ], dtype=float)
 
             nodes = np.array([
                 [0, "depot0", "", 0, 86400, 0, 0],
@@ -730,15 +709,21 @@ class DARPDataBuilder:
         # print("nodes after nuild_nodes :", nodes)
 
         if self.datafile_instance:
-            file_path_prev = "C:\\Users\\enzot\\Documents\\Césure\\1ère césure inria Lille\\Codes\\Stage-Inria-01-09-2025--28-02-2026\\code and instances\\"
-            extractor = data_extractor(file_path = file_path_prev + "datafile0.txt", mrt_factor = 2)
-            nodes = extractor.extract_node_info()
-            t = extractor.extract_travel_matrix(pt_speed = 1)
-            mrt = extractor.compute_maximum_ride_time(t)
-            nodes = np.array(extractor.tighten_time_windows(nodes, t))
-            n_vehicles = extractor.n_vehicles
-            n_requests = extractor.n_requests
-            n_transfers = extractor.n_transfers
+            # file_path_prev = "C:\\Users\\enzot\\Documents\\Césure\\1ère césure inria Lille\\Codes\\Stage-Inria-01-09-2025--28-02-2026\\code and instances\\"
+            # extractor = data_extractor(file_path = file_path_prev + "datafile0.txt", mrt_factor = 2)
+            # nodes = extractor.extract_node_info()
+            # t = extractor.extract_travel_matrix(pt_speed = 1)
+            # mrt = extractor.compute_maximum_ride_time(t)
+            # nodes = np.array(extractor.tighten_time_windows(nodes, t))
+            # n_vehicles = extractor.n_vehicles
+            # n_requests = extractor.n_requests
+            # n_transfers = extractor.n_transfers
+            # t_transfer = t
+            nodes, t = build_random_instance()
+            nodes = np.array(nodes, dtype=object)
+            t = np.array(t, dtype=float)
+            n_vehicles = 4
+            n_requests = 10
             t_transfer = t
 
         # Build sets Id
@@ -746,11 +731,17 @@ class DARPDataBuilder:
         if self.use_imjn:
             R = self.build_requests(nodes)
             N, P, D, C, F, zeroDepot, endDepot, P_M, D_M= self.build_node_imjn_sets(nodes)
+            print("zero Depot", zeroDepot)
+            print("P", P)
             N_minor, P_minor, D_minor, C_minor, F_minor, zeroDepot_bin, endDepot_bin, P_M_minor, D_M_minor= self.build_node_id_sets(nodes)
             Departures = self.build_departures(t_transfer, C_minor)
         else: 
             R, Cr = self.build_requests(nodes)
             N, P, D, C, F, zeroDepot, endDepot, P_M, D_M = self.build_node_id_sets(nodes)
+
+        if self.datafile_instance:
+            zeroDepot = zeroDepot[0]
+            endDepot = endDepot[0]
 
         # print("R fi_r", R)
         # print("N fi_r", N)
@@ -759,14 +750,16 @@ class DARPDataBuilder:
 
         # Build parametres
         di, ei, li, qr, pair_pi_di, Lbar, pair_pi_di_M = self.build_service_params(nodes, t_transfer, P, D, P_M, D_M)
-
+        print("ei :", ei)
+        print("li :", li)
         # Constants
         Q = 4
         T = 3600 * 4
         V = n_vehicles
         K = list(range(V))
         ek = {k: 0 for k in K}
-        lk = {k: 86400 for k in K}
+        # lk = {k: 86400 for k in K}
+        lk = {k: 1440 for k in K}
         M = 100000
         n = len(P)
         # Electric Vehicle Constants
@@ -838,7 +831,7 @@ if __name__ == "__main__":
     builder = DARPDataBuilder(
         duplicate_transfers=False,
         arc_elimination=True,
-        ev_constraints=True,
+        ev_constraints=False,
         use_imjn=True,
         MoPS=False,
         datafile_instance=True
@@ -846,6 +839,9 @@ if __name__ == "__main__":
     sets, params = builder.build()
     print("✅ Build complete.")
     print("Node definition:")
+    print("ei :", params['ei'])
+    print("li :", params['li'])
+    # print(params['tij'].keys())
     # for node in sets['nodes']:
     #     print("====================\n")
     #     print(f"Node {node} \n")

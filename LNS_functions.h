@@ -1,3 +1,9 @@
+#include <string>
+#include <iostream>
+#include <vector>
+#include <limits>
+#include <utility>
+
 
 /* IDENTIFICATION OF THE NODES
 ------------------------------------------------------------------------------------------------------
@@ -16,32 +22,18 @@
 ------------------------------------------------------------------------------------------------------ */
 
 
-// Structs related to the instance:
-struct node { double x_coord; double y_coord; double lower_tw; double upper_tw; double service_dur; int type; };
-struct request { int users_mobile; int users_wheelchair; double max_ride_time; bool eligible_pt; bool long_dist; int nearest_t1[5]; int nearest_t2[5]; };
-struct vehicle { int cap_mobile; int cap_wheelchair; double max_route_dur; };
-
-// Struct defining the problem:
-struct problem { int n_requests; int n_vehicles; int n_terminals; int n_nodes; int n_references;
-				 double *matrix; double *matrix_nontightened; double *user_dissim; double *node_dissim; double *matrix_pt;
-				 node *nodes; request *requests; vehicle *vehicles; };
-
-// Struct defining the solution:
-struct solution { double total_distance; int *predecessor; int *successor;
-				  int *map_to_node; int *map_to_request; int *map_to_vehicle;
-				  int *load_mobile; int *load_wheelchair;
-				  double *service_start; double *earliest_time; double *latest_time;
-				  double *best_insertion_cost; double *second_best_insertion_cost;
-				  int *best_predecessor; int *best_successor;
-				  int *best_vehicle1; int *best_vehicle2; int *second_best_vehicle1; int *second_best_vehicle2;
-				  int *best_terminal1; int *best_terminal2;
-				  std::vector<int> request_bank_prior; std::vector<int> request_bank_non_prior;
-};
+// Structures
+#include "structures.h"
 
 
 // Preprocessing:
-void build_problem(problem &p, std::string data_darp);
-void read_data_darp(problem &p, std::string data_darp);
+// void build_problem(problem &p, std::string data_darp);
+void build_first_problem(struct problem &p, std::string data_darp);
+void build_sequential_problem(struct problem &current_p, std::string data_darp, problem previous_p, solution &previous_s, std::vector<std::pair<int, int>> phantom_pickup_nodes, std::vector<std::pair<int, int>> phantom_dropoff_nodes, bool is_final_subset);
+
+void read_data_darp(problem &p, const std::string& data_darp);
+void read_sequential_data_darp(problem &current_p, const std::string& data_darp, solution previous_s, problem previous_p);
+
 void compute_matrix_nontightened(problem &p);
 void compute_matrix_pt(problem &p);
 void compute_nearest_terminals(problem &p);
@@ -50,6 +42,23 @@ void tighten_time_windows(problem &p);
 void tighten_matrix(problem &p);
 void compute_user_dissimilarities(problem &p);
 void compute_node_dissimilarities(problem &p);
+
+void compute_phantom_end_depot_node(struct problem &p, int phantom_node_id);
+void compute_phantom_node_as_pickup_node(struct problem &p, int phantom_node_id, int entrynode);
+void compute_phantom_node_dropoff_node(struct problem &p, int phantom_node_id, int exitnode);
+
+// Subproblem Management
+std::vector<int> get_intersecting_requests(std::string previous_file, int overlap_size);
+std::vector<std::pair<int, int>> get_vehicle_routes(struct problem &p, struct solution &s, int vehicle_number);
+std::pair<std::vector<std::pair<int,int>>, std::vector<std::pair<int,int>>> break_up_vehicle_route(solution s, problem &p, std::vector<std::pair<int,int>> vehicle_route);
+static inline void unlink_ref(solution &s, int ref);
+static inline removable_node_info *find_node_by_req(std::vector<removable_node_info> &v, int request_id);
+std::pair<std::vector<std::pair<int, int>> , std::vector<std::pair<int, int>>> remove_nodes_route(solution &s, problem &p, std::string previous_file, std::string current_file, int overlap_size);
+std::vector<std::pair<int, double>> get_final_vehicle_positions(solution s, problem &p);
+
+// Subproblem reuniting
+std::vector<std::vector<std::pair<int, double>>> reconstruct_full_routes(const std::vector<std::pair<problem, solution>> &all_subset_info);
+
 
 // Solution management:
 void initialize_solution(problem &p, solution &s);
@@ -100,4 +109,21 @@ void update_latest_time(problem &p, solution &s, int end_node);
 bool check_feasibility(problem &p, solution &s);
 
 // Write output file:
-void write_output_file(problem &p, solution &s, int iterations, double computation_time, bool extensive_output);
+void write_output_file(problem &p, solution &s, int iterations, double computation_time, bool extensive_output, std::string file);
+void write_solution_to_file(const solution& s, int n_nodes, int subproblem_number, int previous);
+
+std::vector<std::pair<int,int>> get_vehicle_routes(problem &p, solution &s, int vehicle_num);
+void write_subproblem_solution_output_file(problem &p, solution &s,
+                                 std::string file, 
+								 int subproblem_number);
+
+void write_subproblem_output_file(problem &p,
+                                 std::string file, 
+								 int subproblem_number);
+
+void write_full_solution_results_file(const std::vector<std::pair<problem, solution>> &all_subset_info);
+
+// Runner
+solution run_for_subproblem(int argc, char *argv[], std::string file, problem p, int subproblem_number); 
+
+void init_output_directory();

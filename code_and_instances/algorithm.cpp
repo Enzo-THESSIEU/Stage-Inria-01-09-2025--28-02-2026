@@ -13,6 +13,10 @@
 #include <string>
 #include <time.h>
 #include <vector>
+#include <stdexcept>
+#include <iomanip>
+
+
 
 #include "functions.h"
 
@@ -23,7 +27,9 @@ using namespace std;
 
 
 // Input data:
-string data_darp = "datafile_4_request.txt";
+// string data_darp = "datafile0.txt";
+string data_darp = "datafile_20_req.txt";
+// vector<string> data_darp = {"datafile0.txt", "datafile1.txt", "datafile2.txt", "datafile3.txt", "datafile4.txt", "datafile5.txt", "datafile6.txt", "datafile7.txt", "datafile8.txt", "datafile9.txt" };
 
 // Problem-related parameters:
 bool transfers = 1;
@@ -33,7 +39,7 @@ double speed_factor_pt = 1.00;
 double pt_interval = 10.0;
 
 // Algorithm-related parameters:
-int iterations = 25000;
+int iterations = 5000;
 int iter_without_impr = 500;
 double max_removal_pct = 0.30;
 double max_deterior_pct = 0.04;
@@ -65,7 +71,7 @@ int main(int argc, char *argv[]) {
 
 	// Input data via command line:
 	if (argc > 1) {
-		data_darp =				argv[1];
+		// data_darp =				argv[1];
 		transfers =				atoi(argv[2]);
 		relative_mrt =			atoi(argv[3]);
 		mrt_factor =			atof(argv[4]);
@@ -85,9 +91,15 @@ int main(int argc, char *argv[]) {
 		priority_short_dist =	atoi(argv[18]);
 	}
 
+	// for (const std::string& file : data_darp) {
+	string file = data_darp;
+	std::cout << "\n=== RUN on " << file << " ===\n";
+
+	// chrono::high_resolution_clock::time_point start_time = chrono::high_resolution_clock::now();
+
 	// Create and initialize problem:
 	struct problem p;
-	build_problem(p, data_darp);
+	build_problem(p, file);
 	std::cout << "Problem Built\n";
 	
 	// Create and initialize solutions:
@@ -122,13 +134,16 @@ int main(int argc, char *argv[]) {
 	for (int iteration = 0; iteration < iterations; iteration++) {
 		
 		// Print intermediate results:
-		if (iteration % 5000 == 0) {
+		if (iteration % 1000 == 0) {
 
 			chrono::high_resolution_clock::time_point end_time = chrono::high_resolution_clock::now();
 			chrono::duration<double> difference = end_time - start_time;
 			double computation_time = difference.count();
 
-			write_output_file(p, s_over, iteration, computation_time, true);
+			write_output_file(p, s_over, iteration, computation_time, true, file);
+
+			write_solution_to_file(file, s_over, p.n_nodes); // or whatever your n_nodes is
+
 		}
 
 		// Apply a diversification to s_best if needed:
@@ -221,7 +236,8 @@ int main(int argc, char *argv[]) {
 	chrono::duration<double> difference = end_time - start_time;
 	double computation_time = difference.count();
 
-	write_output_file(p, s_over, iterations, computation_time, true);
+	write_output_file(p, s_over, iterations, computation_time, true, file);
+// }
 }
 
 
@@ -242,13 +258,13 @@ void build_problem(struct problem &p, std::string data_darp) {
 }
 
 
-void read_data_darp(problem &p, std::string data_darp) {
+void read_data_darp(problem &p, const std::string& data_darp) {
 
-	ifstream infile;
-	infile.open(data_darp);
+	std::ifstream infile(data_darp);
 	if (!infile.is_open()) {
-		std::cerr << "File not opened\n";
+		throw std::runtime_error("File not opened: " + data_darp);
 	}
+
 
 
 	infile >> p.n_vehicles >> p.n_requests >> p.n_terminals;
@@ -2941,7 +2957,7 @@ bool check_feasibility(struct problem &p, struct solution &s) {
 }
 
 
-void write_output_file(struct problem &p, struct solution &s, int current_iteration, double computation_time, bool extensive_output) {
+void write_output_file(struct problem &p, struct solution &s, int current_iteration, double computation_time, bool extensive_output, string file) {
 
 	// Compute output related to ride times:
 	double actual_ride_time = 0, actual_ride_time_noPT = 0, actual_ride_time_PT = 0;
@@ -3014,8 +3030,64 @@ void write_output_file(struct problem &p, struct solution &s, int current_iterat
 	ofstream output_file;
 
 	// Write summary file:
-	output_file.open(("results_summary.txt"), std::ios_base::app);
-	output_file << data_darp << '\t'
+	output_file.open(("results_summary_" + file), std::ios_base::app);
+
+	// ---- HEADER (written once) ----
+    output_file
+        << "file\t"
+        << "transfers\t"
+        << "relative_mrt\t"
+        << "mrt_factor\t"
+        << "speed_factor_pt\t"
+        << "pt_interval\t"
+        << "iterations\t"
+        << "iter_without_impr\t"
+        << "max_removal_pct\t"
+        << "max_deterior_pct\t"
+        << "clustered_removal\t"
+        << "idarp_adapted\t"
+        << "without_operator\t"
+        << "terminals_per_node\t"
+        << "priority_non_pt\t"
+        << "priority_pt\t"
+        << "priority_long_dist\t"
+        << "priority_short_dist\t"
+        << "current_iteration\t"
+        << "total_distance\t"
+        << "computation_time\t"
+        << "avg_actual_ride_time\t"
+        << "avg_actual_ride_time_PT\t"
+        << "avg_actual_ride_time_noPT\t"
+        << "avg_excess_ride_time\t"
+        << "avg_excess_ride_time_PT\t"
+        << "avg_excess_ride_time_noPT\t"
+        << "avg_detour_factor\t"
+        << "avg_detour_factor_PT\t"
+        << "avg_detour_factor_noPT\t"
+        << "avg_waiting_time_PT\t"
+        << "pt_usage_ratio\t"
+        << "accept_random_removal\t"
+        << "accept_worst_removal\t"
+        << "accept_related_removal\t"
+        << "accept_route_removal\t"
+        << "accept_random_order_insertion\t"
+        << "accept_greedy_insertion\t"
+        << "accept_two_regret_insertion\t"
+        << "improve_random_removal\t"
+        << "improve_worst_removal\t"
+        << "improve_related_removal\t"
+        << "improve_route_removal\t"
+        << "improve_random_order_insertion\t"
+        << "improve_greedy_insertion\t"
+        << "improve_two_regret_insertion\t";
+
+    // for (int m = 0; m < p.n_terminals; m++) {
+    //     output_file << "terminal_" << m << "_usage\t";
+    // }
+    output_file << std::endl;
+
+
+	output_file << file << '\t'
 				<< transfers << '\t'
 				<< relative_mrt << '\t'
 				<< mrt_factor << '\t'
@@ -3070,8 +3142,8 @@ void write_output_file(struct problem &p, struct solution &s, int current_iterat
 	if (extensive_output == true) {
 
 		// Write extensive output file:
-		output_file.open("results_extensive.txt", std::ios_base::app);
-		output_file << "Data DARP: " << data_darp << endl
+		output_file.open("results_extensive_" + file + ".txt", std::ios_base::app);
+		output_file << "Data DARP: " << file << endl
 					<< "Transfers: " << transfers << endl
 					<< "Relative MRT: " << relative_mrt << endl
 					<< "MRT factor: " << mrt_factor << endl
@@ -3117,5 +3189,111 @@ void write_output_file(struct problem &p, struct solution &s, int current_iterat
 		output_file << endl << endl;
 
 		output_file.close();
+
+	}
+}
+
+// helper to print an int array
+static void print_int_array(std::ostream& os, const char* name, const int* a, int n) {
+    os << name << " : ";
+    if (!a) { os << "NULL\n"; return; }
+    for (int i = 0; i < n; ++i) {
+        os << a[i] << (i + 1 < n ? " " : "");
+    }
+    os << "\n";
+}
+
+// helper to print a double array
+static void print_double_array(std::ostream& os, const char* name, const double* a, int n) {
+    os << name << " : ";
+    if (!a) { os << "NULL\n"; return; }
+    for (int i = 0; i < n; ++i) {
+        os << a[i] << (i + 1 < n ? " " : "");
+    }
+    os << "\n";
+}
+
+void write_solution_to_file(const std::string& file, const solution& s, int n_nodes)
+{
+    std::ofstream output_file;
+    output_file.open("Solution_" + file, std::ios_base::app);
+    if (!output_file.is_open()) return;
+
+    output_file << "Solution format is:\n"
+                << "total_distance\n"
+                << "predecessor[0..n_nodes-1]\n"
+                << "successor[0..n_nodes-1]\n"
+                << "map_to_node[0..n_nodes-1]\n"
+                << "map_to_request[0..n_nodes-1]\n"
+                << "map_to_vehicle[0..n_nodes-1]\n"
+                << "load_mobile[0..n_nodes-1]\n"
+                << "load_wheelchair[0..n_nodes-1]\n"
+                << "service_start[0..n_nodes-1]\n"
+                << "earliest_time[0..n_nodes-1]\n"
+                << "latest_time[0..n_nodes-1]\n"
+                << "best_insertion_cost[0..n_nodes-1]\n"
+                << "second_best_insertion_cost[0..n_nodes-1]\n"
+                << "best_predecessor[0..n_nodes-1]\n"
+                << "best_successor[0..n_nodes-1]\n"
+                << "best_vehicle1[0..n_nodes-1]\n"
+                << "best_vehicle2[0..n_nodes-1]\n"
+                << "second_best_vehicle1[0..n_nodes-1]\n"
+                << "second_best_vehicle2[0..n_nodes-1]\n"
+                << "best_terminal1[0..n_nodes-1]\n"
+                << "best_terminal2[0..n_nodes-1]\n"
+                << "request_bank_prior (list)\n"
+                << "request_bank_non_prior (list)\n\n";
+
+    output_file << std::fixed << std::setprecision(6);
+    output_file << "total_distance : " << s.total_distance << "\n";
+
+    print_int_array(output_file, "predecessor", s.predecessor, n_nodes);
+    print_int_array(output_file, "successor", s.successor, n_nodes);
+
+    print_int_array(output_file, "map_to_node", s.map_to_node, n_nodes);
+    print_int_array(output_file, "map_to_request", s.map_to_request, n_nodes);
+    print_int_array(output_file, "map_to_vehicle", s.map_to_vehicle, n_nodes);
+
+    print_int_array(output_file, "load_mobile", s.load_mobile, n_nodes);
+    print_int_array(output_file, "load_wheelchair", s.load_wheelchair, n_nodes);
+
+    print_double_array(output_file, "service_start", s.service_start, n_nodes);
+    print_double_array(output_file, "earliest_time", s.earliest_time, n_nodes);
+    print_double_array(output_file, "latest_time", s.latest_time, n_nodes);
+
+    print_double_array(output_file, "best_insertion_cost", s.best_insertion_cost, n_nodes);
+    print_double_array(output_file, "second_best_insertion_cost", s.second_best_insertion_cost, n_nodes);
+
+    print_int_array(output_file, "best_predecessor", s.best_predecessor, n_nodes);
+    print_int_array(output_file, "best_successor", s.best_successor, n_nodes);
+
+    print_int_array(output_file, "best_vehicle1", s.best_vehicle1, n_nodes);
+    print_int_array(output_file, "best_vehicle2", s.best_vehicle2, n_nodes);
+    print_int_array(output_file, "second_best_vehicle1", s.second_best_vehicle1, n_nodes);
+    print_int_array(output_file, "second_best_vehicle2", s.second_best_vehicle2, n_nodes);
+
+    print_int_array(output_file, "best_terminal1", s.best_terminal1, n_nodes);
+    print_int_array(output_file, "best_terminal2", s.best_terminal2, n_nodes);
+
+    output_file << "request_bank_prior : ";
+    for (size_t k = 0; k < s.request_bank_prior.size(); ++k)
+        output_file << s.request_bank_prior[k] << (k + 1 < s.request_bank_prior.size() ? " " : "");
+    output_file << "\n";
+
+    output_file << "request_bank_non_prior : ";
+    for (size_t k = 0; k < s.request_bank_non_prior.size(); ++k)
+        output_file << s.request_bank_non_prior[k] << (k + 1 < s.request_bank_non_prior.size() ? " " : "");
+    output_file << "\n";
+
+    output_file << "------------------------------------------------------------\n\n";
+    output_file.close();
+}
+
+
+
+void remove_overlapping_requests(struct problem &p, struct solution &s, vector<int> requests, std::string previous_sub_problem, std::string new_sub_problem){
+
+	for (int request : requests){
+		remove_request(p, s, request);
 	}
 }
